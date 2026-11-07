@@ -1,6 +1,6 @@
 
 import 'package:flutter/material.dart';
-import 'screens/crear_evento_screen.dart';
+import 'screens/listado_eventos_screen.dart';
 
 void main() {
   runApp(const EventosApp());
@@ -20,7 +20,7 @@ class EventosApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const CrearEventoScreen(),
+      home: ListadoEventosScreen(),
     );
   }
 }
