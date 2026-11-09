@@ -25,6 +25,18 @@ service cloud.firestore {
         && get(usuarioPath(request.auth.uid)).data.rol == rol;
     }
 
+    function esOrganizador() {
+      return tieneRol('organizador');
+    }
+
+    function esParticipante() {
+      return tieneRol('participante');
+    }
+
+    function esAuxiliar() {
+      return tieneRol('auxiliar_acceso');
+    }
+
     function eventoValido(d) {
       return d.nombre is string
         && d.nombre.size() > 0
@@ -41,19 +53,40 @@ service cloud.firestore {
         && d.organizadorUid is string;
     }
 
-    function publicacionValida() {
-      return tieneRol('organizador')
-        && resource.data.organizadorUid == request.auth.uid
-        && resource.data.estado == 'BORRADOR'
-        && request.resource.data.estado == 'ABIERTO'
-        && request.resource.data.inicio > request.time
-        && eventoValido(request.resource.data)
-        && request.resource.data.diff(resource.data)
-             .affectedKeys().hasOnly([
-               'estado',
-               'updatedAt'
-             ])
+    function soloEstadoYFecha() {
+      return request.resource.data.diff(resource.data)
+        .affectedKeys().hasOnly([
+          'estado',
+          'updatedAt'
+        ])
         && request.resource.data.updatedAt == request.time;
+    }
+
+    function cambioEstadoOrganizador() {
+      return esOrganizador()
+        && resource.data.organizadorUid == request.auth.uid
+        && eventoValido(request.resource.data)
+        && soloEstadoYFecha()
+        && (
+          (
+            resource.data.estado == 'BORRADOR'
+            && request.resource.data.estado == 'ABIERTO'
+            && request.resource.data.inicio > request.time
+          )
+          ||
+          (
+            resource.data.estado == 'ABIERTO'
+            && request.resource.data.estado ==
+               'INSCRIPCIONES_CERRADAS'
+          )
+          ||
+          (
+            resource.data.estado ==
+              'INSCRIPCIONES_CERRADAS'
+            && request.resource.data.estado == 'FINALIZADO'
+            && resource.data.fin <= request.time
+          )
+        );
     }
 
     function contadorConfirmacion(eventoId) {
@@ -94,7 +127,7 @@ service cloud.firestore {
     }
 
     function cambioContador(eventoId) {
-      return tieneRol('participante')
+      return esParticipante()
         && eventoValido(request.resource.data)
         && request.resource.data.updatedAt == request.time
         && request.resource.data.diff(resource.data)
@@ -108,6 +141,47 @@ service cloud.firestore {
           contadorConfirmacion(eventoId)
           || contadorCancelacion(eventoId)
         );
+    }
+
+    function ingresoValido() {
+      let evento = get(
+        eventoPath(resource.data.eventoId)
+      ).data;
+
+      return esAuxiliar()
+        && resource.data.estado == 'CONFIRMADA'
+        && request.resource.data.estado ==
+           'INGRESO_REGISTRADO'
+        && request.resource.data.diff(resource.data)
+             .affectedKeys().hasOnly([
+               'estado',
+               'fechaIngreso'
+             ])
+        && request.resource.data.fechaIngreso == request.time
+        && (
+          evento.estado == 'ABIERTO'
+          || evento.estado == 'INSCRIPCIONES_CERRADAS'
+        )
+        && evento.inicio <= request.time
+        && evento.fin > request.time;
+    }
+
+    function ausenciaValida() {
+      let evento = get(
+        eventoPath(resource.data.eventoId)
+      ).data;
+
+      return esAuxiliar()
+        && resource.data.estado == 'CONFIRMADA'
+        && request.resource.data.estado == 'AUSENTE'
+        && request.resource.data.diff(resource.data)
+             .affectedKeys().hasOnly([
+               'estado',
+               'fechaAusencia'
+             ])
+        && request.resource.data.fechaAusencia == request.time
+        && evento.estado == 'FINALIZADO'
+        && evento.fin <= request.time;
     }
 
     match /usuarios/{uid} {
@@ -147,16 +221,34 @@ service cloud.firestore {
         && (
           resource.data.estado == 'ABIERTO'
           || resource.data.organizadorUid == request.auth.uid
-          || exists(inscripcionPath(eventoId, request.auth.uid))
+          || (
+            esAuxiliar()
+            && resource.data.estado in [
+              'ABIERTO',
+              'INSCRIPCIONES_CERRADAS',
+              'FINALIZADO'
+            ]
+          )
+          || exists(
+            inscripcionPath(eventoId, request.auth.uid)
+          )
         );
 
       allow list: if autenticado()
         && (
           resource.data.estado == 'ABIERTO'
           || resource.data.organizadorUid == request.auth.uid
+          || (
+            esAuxiliar()
+            && resource.data.estado in [
+              'ABIERTO',
+              'INSCRIPCIONES_CERRADAS',
+              'FINALIZADO'
+            ]
+          )
         );
 
-      allow create: if tieneRol('organizador')
+      allow create: if esOrganizador()
         && request.resource.data.keys().hasOnly([
           'nombre',
           'capacidad',
@@ -188,7 +280,7 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
 
-      allow update: if publicacionValida()
+      allow update: if cambioEstadoOrganizador()
         || (
           autenticado()
           && cambioContador(eventoId)
@@ -199,19 +291,21 @@ service cloud.firestore {
 
     match /inscripciones/{inscripcionId} {
 
-      // Permite consultar también la inexistencia del
-      // documento propio durante la transacción.
       allow get: if autenticado()
         && (
           inscripcionId.matches(
             '.*_' + request.auth.uid
           )
+          || esAuxiliar()
         );
 
       allow list: if autenticado()
-        && resource.data.participanteUid == request.auth.uid;
+        && (
+          resource.data.participanteUid == request.auth.uid
+          || esAuxiliar()
+        );
 
-      allow create: if tieneRol('participante')
+      allow create: if esParticipante()
         && request.resource.data.keys().hasOnly([
           'eventoId',
           'participanteUid',
@@ -252,32 +346,36 @@ service cloud.firestore {
         && getAfter(eventoPath(request.resource.data.eventoId))
              .data.ultimaOperacionTipo == 'CONFIRMAR';
 
-      allow update: if tieneRol('participante')
-        && resource.data.participanteUid == request.auth.uid
-        && resource.data.estado == 'CONFIRMADA'
-        && request.resource.data.estado == 'CANCELADA'
-        && request.resource.data.diff(resource.data)
-             .affectedKeys().hasOnly([
-               'estado',
-               'fechaCancelacion'
-             ])
-        && request.resource.data.fechaCancelacion ==
-           request.time
-        && get(eventoPath(resource.data.eventoId))
-             .data.estado != 'FINALIZADO'
-        && get(eventoPath(resource.data.eventoId))
-             .data.inicio >=
+      allow update: if (
+          esParticipante()
+          && resource.data.participanteUid == request.auth.uid
+          && resource.data.estado == 'CONFIRMADA'
+          && request.resource.data.estado == 'CANCELADA'
+          && request.resource.data.diff(resource.data)
+               .affectedKeys().hasOnly([
+                 'estado',
+                 'fechaCancelacion'
+               ])
+          && request.resource.data.fechaCancelacion ==
+             request.time
+          && get(eventoPath(resource.data.eventoId))
+               .data.estado != 'FINALIZADO'
+          && get(eventoPath(resource.data.eventoId))
+               .data.inicio >=
              request.time + duration.value(1, 'h')
-        && get(eventoPath(resource.data.eventoId))
-             .data.confirmados > 0
-        && getAfter(eventoPath(resource.data.eventoId))
-             .data.confirmados ==
-           get(eventoPath(resource.data.eventoId))
-             .data.confirmados - 1
-        && getAfter(eventoPath(resource.data.eventoId))
-             .data.ultimaOperacionUid == request.auth.uid
-        && getAfter(eventoPath(resource.data.eventoId))
-             .data.ultimaOperacionTipo == 'CANCELAR';
+          && get(eventoPath(resource.data.eventoId))
+               .data.confirmados > 0
+          && getAfter(eventoPath(resource.data.eventoId))
+               .data.confirmados ==
+             get(eventoPath(resource.data.eventoId))
+               .data.confirmados - 1
+          && getAfter(eventoPath(resource.data.eventoId))
+               .data.ultimaOperacionUid == request.auth.uid
+          && getAfter(eventoPath(resource.data.eventoId))
+               .data.ultimaOperacionTipo == 'CANCELAR'
+        )
+        || ingresoValido()
+        || ausenciaValida();
 
       allow delete: if false;
     }

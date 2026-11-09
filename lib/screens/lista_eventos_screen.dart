@@ -48,36 +48,12 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
     );
   }
 
-  Future<void> publicar(Evento evento) async {
-    if (procesandoId != null) return;
-
-    setState(() => procesandoId = evento.id);
-
-    try {
-      await eventoRepository.publicarEvento(evento.id);
-
-      if (!mounted) return;
-
-      mostrarMensaje('Evento publicado correctamente', exito: true);
-    } catch (error) {
-      if (!mounted) return;
-
-      mostrarMensaje('Error al publicar: $error');
-    } finally {
-      if (mounted) {
-        setState(() => procesandoId = null);
-      }
-    }
-  }
-
-  Future<void> inscribirse(Evento evento) async {
-    if (procesandoId != null) return;
-
-    final confirmar = await showDialog<bool>(
+  Future<bool> confirmarAccion(String titulo, String descripcion) async {
+    final resultado = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Confirmar inscripción'),
-        content: Text('¿Quieres inscribirte en "${evento.nombre}"?'),
+        title: Text(titulo),
+        content: Text(descripcion),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -85,26 +61,34 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Inscribirme'),
+            child: const Text('Confirmar'),
           ),
         ],
       ),
     );
 
-    if (confirmar != true || !mounted) return;
+    return resultado == true;
+  }
+
+  Future<void> ejecutar(
+    Evento evento,
+    Future<void> Function() operacion,
+    String mensajeExito,
+  ) async {
+    if (procesandoId != null) return;
 
     setState(() => procesandoId = evento.id);
 
     try {
-      await inscripcionRepository.confirmarInscripcion(evento.id);
+      await operacion();
 
       if (!mounted) return;
 
-      mostrarMensaje('Inscripción confirmada correctamente', exito: true);
+      mostrarMensaje(mensajeExito, exito: true);
     } catch (error) {
       if (!mounted) return;
 
-      mostrarMensaje('No se pudo confirmar: $error');
+      mostrarMensaje('No se pudo completar la operación: $error');
     } finally {
       if (mounted) {
         setState(() => procesandoId = null);
@@ -112,11 +96,69 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
     }
   }
 
+  Future<void> publicar(Evento evento) async {
+    await ejecutar(
+      evento,
+      () => eventoRepository.publicarEvento(evento.id),
+      'Evento publicado correctamente',
+    );
+  }
+
+  Future<void> cerrarInscripciones(Evento evento) async {
+    final confirmado = await confirmarAccion(
+      'Cerrar inscripciones',
+      'Los participantes ya no podrán inscribirse '
+          'en este evento. ¿Deseas continuar?',
+    );
+
+    if (!confirmado || !mounted) return;
+
+    await ejecutar(
+      evento,
+      () => eventoRepository.cerrarInscripciones(evento.id),
+      'Inscripciones cerradas correctamente',
+    );
+  }
+
+  Future<void> finalizarEvento(Evento evento) async {
+    final confirmado = await confirmarAccion(
+      'Finalizar evento',
+      'El evento pasará a FINALIZADO. '
+          'No se podrán registrar nuevos ingresos. '
+          '¿Deseas continuar?',
+    );
+
+    if (!confirmado || !mounted) return;
+
+    await ejecutar(
+      evento,
+      () => eventoRepository.finalizarEvento(evento.id),
+      'Evento finalizado correctamente',
+    );
+  }
+
+  Future<void> inscribirse(Evento evento) async {
+    final confirmado = await confirmarAccion(
+      'Confirmar inscripción',
+      '¿Quieres inscribirte en "${evento.nombre}"?',
+    );
+
+    if (!confirmado || !mounted) return;
+
+    await ejecutar(
+      evento,
+      () => inscripcionRepository.confirmarInscripcion(evento.id),
+      'Inscripción confirmada correctamente',
+    );
+  }
+
   Widget tarjetaEvento(Evento evento) {
     final disponibles = evento.capacidad - evento.confirmados;
 
     final sinCupos = disponibles <= 0;
     final procesando = procesandoId == evento.id;
+
+    final ahora = DateTime.now();
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -129,33 +171,12 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
               evento.nombre,
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-
             const SizedBox(height: 12),
-
-            Row(
-              children: [
-                const Icon(Icons.calendar_today, size: 18),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Inicio: ${fechaTexto(evento.inicio)}')),
-              ],
-            ),
-
-            const SizedBox(height: 8),
-
-            Row(
-              children: [
-                const Icon(Icons.schedule, size: 18),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Fin: ${fechaTexto(evento.fin)}')),
-              ],
-            ),
-
+            Text('Inicio: ${fechaTexto(evento.inicio)}'),
+            Text('Finalización: ${fechaTexto(evento.fin)}'),
             const SizedBox(height: 12),
-
             Text('Capacidad: ${evento.capacidad}'),
-
             Text('Confirmados: ${evento.confirmados}'),
-
             Text(
               'Cupos disponibles: $disponibles',
               style: TextStyle(
@@ -163,14 +184,11 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-
             const SizedBox(height: 12),
-
             Chip(label: Text(evento.estado)),
 
             if (widget.esOrganizador && evento.estado == 'BORRADOR') ...[
               const SizedBox(height: 12),
-
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -178,30 +196,68 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
                       ? () => publicar(evento)
                       : null,
                   icon: const Icon(Icons.publish),
-                  label: Text(procesando ? 'Publicando...' : 'Publicar evento'),
+                  label: Text(procesando ? 'Procesando...' : 'Publicar evento'),
+                ),
+              ),
+            ],
+
+            if (widget.esOrganizador && evento.estado == 'ABIERTO') ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: procesandoId == null
+                      ? () => cerrarInscripciones(evento)
+                      : null,
+                  icon: const Icon(Icons.lock),
+                  label: Text(
+                    procesando ? 'Procesando...' : 'Cerrar inscripciones',
+                  ),
+                ),
+              ),
+            ],
+
+            if (widget.esOrganizador &&
+                evento.estado == 'INSCRIPCIONES_CERRADAS') ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: procesandoId == null && !ahora.isBefore(evento.fin)
+                      ? () => finalizarEvento(evento)
+                      : null,
+                  icon: const Icon(Icons.task_alt),
+                  label: Text(
+                    procesando
+                        ? 'Procesando...'
+                        : ahora.isBefore(evento.fin)
+                        ? 'Esperando fin del evento'
+                        : 'Finalizar evento',
+                  ),
                 ),
               ),
             ],
 
             if (!widget.esOrganizador && evento.estado == 'ABIERTO') ...[
               const SizedBox(height: 12),
-
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed:
                       procesandoId == null &&
                           !sinCupos &&
-                          evento.inicio.isAfter(DateTime.now())
+                          ahora.isBefore(evento.inicio)
                       ? () => inscribirse(evento)
                       : null,
                   icon: const Icon(Icons.how_to_reg),
                   label: Text(
                     procesando
-                        ? 'Confirmando...'
+                        ? 'Procesando...'
                         : sinCupos
                         ? 'Sin cupos'
-                        : 'Inscribirme',
+                        : ahora.isBefore(evento.inicio)
+                        ? 'Inscribirme'
+                        : 'Evento iniciado',
                   ),
                 ),
               ),
@@ -220,7 +276,6 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
           widget.esOrganizador ? 'Mis eventos' : 'Eventos disponibles',
         ),
       ),
-
       floatingActionButton: widget.esOrganizador
           ? FloatingActionButton(
               tooltip: 'Crear evento',
@@ -233,7 +288,6 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
               child: const Icon(Icons.add),
             )
           : null,
-
       body: StreamBuilder<List<Evento>>(
         stream: eventosStream,
         builder: (context, snapshot) {

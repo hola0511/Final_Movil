@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
+import '../acceso_eventos_screen.dart';
 import '../lista_eventos_screen.dart';
 import '../mis_inscripciones_screen.dart';
 
@@ -43,32 +44,25 @@ class HomeRolScreen extends StatelessWidget {
           ),
         ],
       ),
-
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const SizedBox(height: 20),
-
             Icon(icono, size: 72, color: Colors.indigo),
-
             const SizedBox(height: 20),
-
             Text(
               'Bienvenido, $nombre',
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
-
             const SizedBox(height: 8),
-
             Text(
               titulo,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 16, color: Colors.grey),
             ),
-
             const SizedBox(height: 35),
 
             if (esOrganizador) ...[
@@ -101,9 +95,7 @@ class HomeRolScreen extends StatelessWidget {
                   );
                 },
               ),
-
               const SizedBox(height: 14),
-
               ElevatedButton.icon(
                 icon: const Icon(Icons.assignment),
                 label: const Text('Mis inscripciones'),
@@ -119,28 +111,27 @@ class HomeRolScreen extends StatelessWidget {
             ],
 
             if (esAuxiliar) ...[
+              ElevatedButton.icon(
+                icon: const Icon(Icons.fact_check),
+                label: const Text('Control de acceso'),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AccesoEventosScreen(),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
               const Card(
                 child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Column(
-                    children: [
-                      Icon(Icons.fact_check, size: 48),
-                      SizedBox(height: 12),
-                      Text(
-                        'Control de acceso',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      SizedBox(height: 12),
-                      Text(
-                        'La gestión de asistencia '
-                        'se implementará en la '
-                        'siguiente funcionalidad.',
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'Aquí podrás consultar inscritos, '
+                    'registrar ingresos durante el evento '
+                    'y marcar ausencias después de finalizar.',
+                    textAlign: TextAlign.center,
                   ),
                 ),
               ),
