@@ -11,6 +11,16 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+node_modules/
+# Firma de Android
+android/key.properties
+*.jks
+*.keystore
+
+# Archivos generados
+.dart_tool/
+build/
+node_modules/
 
 # IntelliJ related
 *.iml

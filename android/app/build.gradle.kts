@@ -1,4 +1,7 @@
 
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
 
@@ -7,6 +10,19 @@ plugins {
     id("com.google.firebase.crashlytics")
 
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Cargar las propiedades de firma.
+// El archivo permanece fuera del repositorio.
+val keystoreProperties = Properties()
+
+val keystorePropertiesFile =
+    rootProject.file("key.properties")
+
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(
+        FileInputStream(keystorePropertiesFile)
+    )
 }
 
 android {
@@ -18,7 +34,6 @@ android {
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
-
         targetCompatibility = JavaVersion.VERSION_17
     }
 
@@ -34,12 +49,28 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            keyAlias =
+                keystoreProperties.getProperty("keyAlias")
+
+            keyPassword =
+                keystoreProperties.getProperty("keyPassword")
+
+            storeFile =
+                keystoreProperties.getProperty("storeFile")
+                    ?.let { file(it) }
+
+            storePassword =
+                keystoreProperties.getProperty("storePassword")
+        }
+    }
+
     buildTypes {
         release {
-            // Configuración temporal para pruebas.
-            // Configurar firma de release propia
-            // antes de la entrega definitiva.
-            signingConfig = signingConfigs.getByName("debug")
+            // Firmar con el certificado propio.
+            signingConfig =
+                signingConfigs.getByName("release")
         }
     }
 }
