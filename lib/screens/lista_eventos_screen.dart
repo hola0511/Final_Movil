@@ -4,6 +4,7 @@ import '../models/evento.dart';
 import '../repositories/evento_repository.dart';
 import '../repositories/inscripcion_repository.dart';
 import 'crear_evento_screen.dart';
+import 'mis_inscripciones_screen.dart';
 
 class ListaEventosScreen extends StatefulWidget {
   final bool esOrganizador;
@@ -44,6 +45,7 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
       SnackBar(
         content: Text(mensaje),
         backgroundColor: exito ? Colors.green : Colors.red,
+        duration: const Duration(seconds: 4),
       ),
     );
   }
@@ -105,50 +107,50 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
   }
 
   Future<void> cerrarInscripciones(Evento evento) async {
-    final confirmado = await confirmarAccion(
+    final confirmar = await confirmarAccion(
       'Cerrar inscripciones',
-      'Los participantes ya no podrán inscribirse '
-          'en este evento. ¿Deseas continuar?',
+      '¿Quieres cerrar las inscripciones de este evento?',
     );
 
-    if (!confirmado || !mounted) return;
+    if (!confirmar || !mounted) return;
 
     await ejecutar(
       evento,
       () => eventoRepository.cerrarInscripciones(evento.id),
-      'Inscripciones cerradas correctamente',
+      'Inscripciones cerradas',
     );
   }
 
   Future<void> finalizarEvento(Evento evento) async {
-    final confirmado = await confirmarAccion(
+    final confirmar = await confirmarAccion(
       'Finalizar evento',
-      'El evento pasará a FINALIZADO. '
-          'No se podrán registrar nuevos ingresos. '
-          '¿Deseas continuar?',
+      '¿Quieres marcar este evento como finalizado?',
     );
 
-    if (!confirmado || !mounted) return;
+    if (!confirmar || !mounted) return;
 
     await ejecutar(
       evento,
       () => eventoRepository.finalizarEvento(evento.id),
-      'Evento finalizado correctamente',
+      'Evento finalizado',
     );
   }
 
   Future<void> inscribirse(Evento evento) async {
-    final confirmado = await confirmarAccion(
-      'Confirmar inscripción',
-      '¿Quieres inscribirte en "${evento.nombre}"?',
+    final confirmar = await confirmarAccion(
+      'Solicitar inscripción',
+      'La solicitud se guardará primero en el '
+          'dispositivo. El cupo solo estará reservado '
+          'cuando Firestore confirme la inscripción.',
     );
 
-    if (!confirmado || !mounted) return;
+    if (!confirmar || !mounted) return;
 
     await ejecutar(
       evento,
       () => inscripcionRepository.confirmarInscripcion(evento.id),
-      'Inscripción confirmada correctamente',
+      'Solicitud registrada. Consulta Mis inscripciones '
+      'para verificar si fue confirmada.',
     );
   }
 
@@ -157,7 +159,6 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
 
     final sinCupos = disponibles <= 0;
     final procesando = procesandoId == evento.id;
-
     final ahora = DateTime.now();
 
     return Card(
@@ -173,15 +174,15 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
             ),
             const SizedBox(height: 12),
             Text('Inicio: ${fechaTexto(evento.inicio)}'),
-            Text('Finalización: ${fechaTexto(evento.fin)}'),
+            Text('Fin: ${fechaTexto(evento.fin)}'),
             const SizedBox(height: 12),
             Text('Capacidad: ${evento.capacidad}'),
             Text('Confirmados: ${evento.confirmados}'),
             Text(
               'Cupos disponibles: $disponibles',
               style: TextStyle(
-                color: sinCupos ? Colors.red : Colors.green,
                 fontWeight: FontWeight.bold,
+                color: sinCupos ? Colors.red : Colors.green,
               ),
             ),
             const SizedBox(height: 12),
@@ -228,10 +229,10 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
                       : null,
                   icon: const Icon(Icons.task_alt),
                   label: Text(
-                    procesando
-                        ? 'Procesando...'
-                        : ahora.isBefore(evento.fin)
+                    ahora.isBefore(evento.fin)
                         ? 'Esperando fin del evento'
+                        : procesando
+                        ? 'Procesando...'
                         : 'Finalizar evento',
                   ),
                 ),
@@ -252,14 +253,27 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
                   icon: const Icon(Icons.how_to_reg),
                   label: Text(
                     procesando
-                        ? 'Procesando...'
+                        ? 'Guardando solicitud...'
                         : sinCupos
                         ? 'Sin cupos'
                         : ahora.isBefore(evento.inicio)
-                        ? 'Inscribirme'
+                        ? 'Solicitar inscripción'
                         : 'Evento iniciado',
                   ),
                 ),
+              ),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const MisInscripcionesScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.assignment),
+                label: const Text('Ver mis solicitudes y sincronización'),
               ),
             ],
           ],
@@ -293,13 +307,10 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Text(
-                  'Error al consultar eventos: '
-                  '${snapshot.error}',
-                  textAlign: TextAlign.center,
-                ),
+              child: Text(
+                'Error al consultar eventos: '
+                '${snapshot.error}',
+                textAlign: TextAlign.center,
               ),
             );
           }
@@ -323,9 +334,7 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
           return ListView.builder(
             padding: const EdgeInsets.all(12),
             itemCount: eventos.length,
-            itemBuilder: (context, index) {
-              return tarjetaEvento(eventos[index]);
-            },
+            itemBuilder: (context, index) => tarjetaEvento(eventos[index]),
           );
         },
       ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../database/app_database.dart';
 import '../models/inscripcion.dart';
 import '../repositories/inscripcion_repository.dart';
 
@@ -10,38 +11,89 @@ class MisInscripcionesScreen extends StatefulWidget {
   State<MisInscripcionesScreen> createState() => _MisInscripcionesScreenState();
 }
 
-class _MisInscripcionesScreenState extends State<MisInscripcionesScreen> {
+class _MisInscripcionesScreenState extends State<MisInscripcionesScreen>
+    with WidgetsBindingObserver {
   final repository = InscripcionRepository();
 
-  late final Stream<List<Inscripcion>> stream;
+  late final Stream<List<SolicitudesLocale>> localStream;
+  late final Stream<List<Inscripcion>> remotoStream;
 
-  String? procesandoId;
+  bool sincronizando = false;
 
   @override
   void initState() {
     super.initState();
-    stream = repository.misInscripciones();
+
+    WidgetsBinding.instance.addObserver(this);
+
+    localStream = repository.observarSolicitudesLocales();
+    remotoStream = repository.misInscripciones();
+
+    // Intenta enviar pendientes al abrir esta pantalla.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) sincronizar();
+    });
   }
 
-  Future<void> cancelar(Inscripcion inscripcion) async {
-    if (procesandoId != null) return;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      sincronizar();
+    }
+  }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  void mensaje(String texto) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(texto)));
+  }
+
+  Future<void> sincronizar() async {
+    if (sincronizando || !mounted) return;
+
+    setState(() => sincronizando = true);
+
+    try {
+      await repository.sincronizarPendientes();
+
+      if (!mounted) return;
+
+      mensaje(
+        'Sincronización revisada. '
+        'Comprueba el estado de cada solicitud.',
+      );
+    } catch (error) {
+      mensaje('No se pudo sincronizar: $error');
+    } finally {
+      if (mounted) {
+        setState(() => sincronizando = false);
+      }
+    }
+  }
+
+  Future<void> descartar(SolicitudesLocale solicitud) async {
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Cancelar inscripción'),
+        title: const Text('Descartar intento'),
         content: const Text(
-          '¿Deseas cancelar esta inscripción? '
-          'El cupo será liberado.',
+          'Se eliminará el intento local rechazado. '
+          'Esto no elimina una inscripción remota.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Volver'),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Confirmar cancelación'),
+            child: const Text('Descartar'),
           ),
         ],
       ),
@@ -49,131 +101,257 @@ class _MisInscripcionesScreenState extends State<MisInscripcionesScreen> {
 
     if (confirmar != true || !mounted) return;
 
-    setState(() {
-      procesandoId = inscripcion.id;
-    });
+    try {
+      await repository.descartarConflicto(solicitud.id);
+      mensaje('Intento local descartado');
+    } catch (error) {
+      mensaje('Error al descartar: $error');
+    }
+  }
+
+  Color colorSincronizacion(String estado) {
+    switch (estado) {
+      case 'SINCRONIZADO':
+        return Colors.green;
+      case 'CONFLICTO':
+        return Colors.red;
+      default:
+        return Colors.orange;
+    }
+  }
+
+  Widget construirLocales(List<SolicitudesLocale> solicitudes) {
+    if (solicitudes.isEmpty) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('No tienes solicitudes guardadas localmente.'),
+        ),
+      );
+    }
+
+    return Column(
+      children: solicitudes.map((solicitud) {
+        final pendiente = solicitud.estadoSync == 'PENDIENTE';
+
+        final conflicto = solicitud.estadoSync == 'CONFLICTO';
+
+        final sincronizado = solicitud.estadoSync == 'SINCRONIZADO';
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Solicitud local',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                SelectableText('Evento: ${solicitud.eventoId}'),
+                const SizedBox(height: 8),
+                Text(
+                  'Estado de negocio al sincronizar: '
+                  '${solicitud.estadoNegocio}',
+                ),
+                const SizedBox(height: 8),
+                Chip(
+                  label: Text(solicitud.estadoSync),
+                  backgroundColor: colorSincronizacion(solicitud.estadoSync)
+                      .withValues(alpha: 0.15),
+                ),
+                if (solicitud.ultimoError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Detalle: ${solicitud.ultimoError}',
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                ],
+                if (pendiente) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Todavía no hay cupo confirmado.',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ],
+                if (conflicto) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'La solicitud fue rechazada '
+                    'por una condición del negocio.',
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => descartar(solicitud),
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Descartar intento'),
+                  ),
+                ],
+                if (sincronizado) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Envío confirmado. Consulta el historial '
+                    'remoto para conocer el estado actual.',
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Future<void> cancelarInscripcion(Inscripcion inscripcion) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancelar inscripción'),
+        content: const Text(
+          '¿Quieres cancelar esta inscripción? '
+          'Solo se puede cancelar dentro del plazo.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Volver'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Cancelar inscripción'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true || !mounted) return;
 
     try {
       await repository.cancelarInscripcion(inscripcion.eventoId);
 
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Inscripción cancelada correctamente'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      mensaje('Inscripción cancelada');
     } catch (error) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('No se pudo cancelar: $error')));
-    } finally {
-      if (mounted) {
-        setState(() {
-          procesandoId = null;
-        });
-      }
+      mensaje('No se pudo cancelar: $error');
     }
   }
 
-  Color colorEstado(String estado) {
-    switch (estado) {
-      case 'CONFIRMADA':
-        return Colors.green;
-      case 'CANCELADA':
-        return Colors.red;
-      case 'INGRESO_REGISTRADO':
-        return Colors.blue;
-      case 'AUSENTE':
-        return Colors.orange;
-      default:
-        return Colors.grey;
+  Widget construirRemotas(List<Inscripcion> inscripciones) {
+    if (inscripciones.isEmpty) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('No hay inscripciones confirmadas en Firestore.'),
+        ),
+      );
     }
+
+    return Column(
+      children: inscripciones.map((inscripcion) {
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: ListTile(
+            title: Text('Evento: ${inscripcion.eventoId}'),
+            subtitle: Text('Estado real: ${inscripcion.estado}'),
+            trailing: inscripcion.estado == 'CONFIRMADA'
+                ? IconButton(
+                    tooltip: 'Cancelar inscripción',
+                    icon: const Icon(Icons.cancel_outlined),
+                    onPressed: () => cancelarInscripcion(inscripcion),
+                  )
+                : const Icon(Icons.history),
+          ),
+        );
+      }).toList(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Mis inscripciones')),
-      body: StreamBuilder<List<Inscripcion>>(
-        stream: stream,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(
-              child: Text(
-                'Error al consultar inscripciones: '
-                '${snapshot.error}',
-              ),
-            );
-          }
+      appBar: AppBar(
+        title: const Text('Mis inscripciones'),
+        actions: [
+          IconButton(
+            tooltip: 'Sincronizar pendientes',
+            onPressed: sincronizando ? null : sincronizar,
+            icon: const Icon(Icons.sync),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text(
+            'Solicitudes locales',
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          const Text('Las solicitudes pendientes no reservan cupo.'),
+          const SizedBox(height: 16),
 
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
+          if (sincronizando) const LinearProgressIndicator(),
 
-          final inscripciones = snapshot.data!;
+          StreamBuilder<List<SolicitudesLocale>>(
+            stream: localStream,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Text(
+                  'Error al consultar SQLite: '
+                  '${snapshot.error}',
+                );
+              }
 
-          if (inscripciones.isEmpty) {
-            return const Center(child: Text('Todavía no tienes inscripciones'));
-          }
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(12),
-            itemCount: inscripciones.length,
-            itemBuilder: (context, index) {
-              final inscripcion = inscripciones[index];
-
-              final confirmada = inscripcion.estado == 'CONFIRMADA';
-
-              return Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Inscripción al evento',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      SelectableText('Evento ID: ${inscripcion.eventoId}'),
-
-                      const SizedBox(height: 10),
-
-                      Chip(
-                        label: Text(inscripcion.estado),
-                        backgroundColor: colorEstado(inscripcion.estado)
-                            .withValues(alpha: 0.15),
-                      ),
-
-                      if (confirmada) ...[
-                        const SizedBox(height: 12),
-
-                        ElevatedButton.icon(
-                          onPressed: procesandoId == null
-                              ? () => cancelar(inscripcion)
-                              : null,
-                          icon: const Icon(Icons.cancel),
-                          label: procesandoId == inscripcion.id
-                              ? const Text('Cancelando...')
-                              : const Text('Cancelar inscripción'),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              );
+              return construirLocales(snapshot.data!);
             },
-          );
-        },
+          ),
+
+          const SizedBox(height: 24),
+
+          ElevatedButton.icon(
+            onPressed: sincronizando ? null : sincronizar,
+            icon: const Icon(Icons.sync),
+            label: Text(
+              sincronizando ? 'Sincronizando...' : 'Sincronizar pendientes',
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          const Text(
+            'Historial remoto',
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Aquí aparecen las inscripciones '
+            'que Firestore conoce.',
+          ),
+          const SizedBox(height: 16),
+
+          StreamBuilder<List<Inscripcion>>(
+            stream: remotoStream,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const Text(
+                  'No se pudo consultar Firestore. '
+                  'Las solicitudes locales siguen disponibles.',
+                );
+              }
+
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              return construirRemotas(snapshot.data!);
+            },
+          ),
+        ],
       ),
     );
   }
