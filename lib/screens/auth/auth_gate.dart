@@ -1,6 +1,6 @@
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
 import '../../services/auth_service.dart';
 import 'home_rol_screen.dart';
 import 'login_screen.dart';
@@ -15,20 +15,15 @@ class AuthGate extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: auth.authStateChanges,
       builder: (context, sesion) {
-        if (sesion.connectionState ==
-            ConnectionState.waiting) {
+        if (sesion.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            body: Center(
-              child: CircularProgressIndicator(),
-            ),
+            body: Center(child: CircularProgressIndicator()),
           );
         }
 
         if (sesion.hasError) {
           return const Scaffold(
-            body: Center(
-              child: Text('Error al recuperar la sesión'),
-            ),
+            body: Center(child: Text('Error al recuperar la sesión')),
           );
         }
 
@@ -41,20 +36,15 @@ class AuthGate extends StatelessWidget {
         return StreamBuilder(
           stream: auth.perfilActual(usuario.uid),
           builder: (context, perfil) {
-            if (perfil.connectionState ==
-                ConnectionState.waiting) {
+            if (perfil.connectionState == ConnectionState.waiting) {
               return const Scaffold(
-                body: Center(
-                  child: CircularProgressIndicator(),
-                ),
+                body: Center(child: CircularProgressIndicator()),
               );
             }
 
             if (perfil.hasError) {
               return const Scaffold(
-                body: Center(
-                  child: Text('Error al consultar el perfil'),
-                ),
+                body: Center(child: Text('Error al consultar el perfil')),
               );
             }
 
@@ -64,9 +54,7 @@ class AuthGate extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
-                        'Tu perfil no está disponible.',
-                      ),
+                      const Text('Tu perfil no está disponible.'),
                       ElevatedButton(
                         onPressed: auth.cerrarSesion,
                         child: const Text('Cerrar sesión'),
@@ -86,15 +74,12 @@ class AuthGate extends StatelessWidget {
               'auxiliar_acceso',
             ].contains(rol)) {
               return const Scaffold(
-                body: Center(
-                  child: Text('Rol no autorizado'),
-                ),
+                body: Center(child: Text('Rol no autorizado')),
               );
             }
 
             return HomeRolScreen(
-              nombre: datos['nombre'] as String? ??
-                  'Usuario',
+              nombre: datos['nombre'] as String? ?? 'Usuario',
               rol: rol!,
             );
           },

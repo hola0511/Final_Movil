@@ -1,6 +1,6 @@
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
 import '../../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -76,10 +76,7 @@ class _LoginScreenState extends State<LoginScreen> {
           password: clave,
         );
       } else {
-        await auth.iniciarSesion(
-          email: correo,
-          password: clave,
-        );
+        await auth.iniciarSesion(email: correo, password: clave);
       }
     } catch (error) {
       if (mounted) mostrarMensaje(mensajeError(error));
@@ -91,17 +88,14 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void mostrarMensaje(String mensaje) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(mensaje)),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(mensaje)));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Eventos G62-5'),
-      ),
+      appBar: AppBar(title: const Text('Eventos G62-5')),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -117,9 +111,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  esRegistro
-                      ? 'Crear cuenta'
-                      : 'Iniciar sesión',
+                  esRegistro ? 'Crear cuenta' : 'Iniciar sesión',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 26,
@@ -162,23 +154,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   onPressed: cargando ? null : enviar,
                   child: cargando
                       ? const CircularProgressIndicator()
-                      : Text(
-                          esRegistro
-                              ? 'Registrarme'
-                              : 'Ingresar',
-                        ),
+                      : Text(esRegistro ? 'Registrarme' : 'Ingresar'),
                 ),
                 const SizedBox(height: 10),
                 TextButton(
                   onPressed: cargando
                       ? null
                       : () => setState(() {
-                            esRegistro = !esRegistro;
-                          }),
+                          esRegistro = !esRegistro;
+                        }),
                   child: Text(
-                    esRegistro
-                        ? 'Ya tengo cuenta'
-                        : 'Crear una cuenta',
+                    esRegistro ? 'Ya tengo cuenta' : 'Crear una cuenta',
                   ),
                 ),
               ],

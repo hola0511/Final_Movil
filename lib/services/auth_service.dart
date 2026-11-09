@@ -1,4 +1,3 @@
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -6,8 +5,7 @@ class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  Stream<User?> get authStateChanges =>
-      _auth.authStateChanges();
+  Stream<User?> get authStateChanges => _auth.authStateChanges();
 
   User? get usuarioActual => _auth.currentUser;
 
@@ -53,8 +51,7 @@ class AuthService {
     await _auth.signOut();
   }
 
-  Stream<DocumentSnapshot<Map<String, dynamic>>>
-      perfilActual(String uid) {
+  Stream<DocumentSnapshot<Map<String, dynamic>>> perfilActual(String uid) {
     return _db.collection('usuarios').doc(uid).snapshots();
   }
 }
