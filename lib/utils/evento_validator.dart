@@ -1,7 +1,7 @@
 import '../models/evento.dart';
 
 class EventoValidator {
-  static String? validar(Evento evento) {
+  static String? validar(Evento evento, {int? capacidadRecinto}) {
     if (evento.nombre.trim().isEmpty) {
       return 'El nombre del evento es obligatorio';
     }
@@ -16,6 +16,10 @@ class EventoValidator {
 
     if (!evento.fin.isAfter(evento.inicio)) {
       return 'La fecha de fin debe ser posterior al inicio';
+    }
+
+    if (capacidadRecinto != null && evento.capacidad > capacidadRecinto) {
+      return 'La capacidad supera la capacidad de referencia del recinto';
     }
 
     return null;

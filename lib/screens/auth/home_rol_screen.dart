@@ -1,6 +1,8 @@
+
 import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
+import '../../preferences/app_preferences.dart';
 import '../acceso_eventos_screen.dart';
 import '../catalogo_screen.dart';
 import '../lista_eventos_screen.dart';
@@ -10,10 +12,17 @@ class HomeRolScreen extends StatelessWidget {
   final String nombre;
   final String rol;
 
-  const HomeRolScreen({super.key, required this.nombre, required this.rol});
+  const HomeRolScreen({
+    super.key,
+    required this.nombre,
+    required this.rol,
+  });
 
   void abrirPantalla(BuildContext context, Widget pantalla) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => pantalla));
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => pantalla),
+    );
   }
 
   @override
@@ -64,7 +73,10 @@ class HomeRolScreen extends StatelessWidget {
             Text(
               'Bienvenido, $nombre',
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
             ),
 
             const SizedBox(height: 8),
@@ -72,10 +84,39 @@ class HomeRolScreen extends StatelessWidget {
             Text(
               titulo,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16, color: Colors.grey),
+              style: const TextStyle(
+                fontSize: 16,
+                color: Colors.grey,
+              ),
             ),
 
-            const SizedBox(height: 35),
+            const SizedBox(height: 25),
+
+            // Configuración de apariencia
+            Card(
+              child: ValueListenableBuilder<bool>(
+                valueListenable: AppPreferences.temaOscuro,
+                builder: (context, oscuro, child) {
+                  return SwitchListTile(
+                    secondary: Icon(
+                      oscuro ? Icons.dark_mode : Icons.light_mode,
+                    ),
+                    title: const Text('Modo oscuro'),
+                    subtitle: Text(
+                      oscuro
+                          ? 'Tema oscuro activado'
+                          : 'Tema claro activado',
+                    ),
+                    value: oscuro,
+                    onChanged: (valor) {
+                      AppPreferences.cambiarTema(valor);
+                    },
+                  );
+                },
+              ),
+            ),
+
+            const SizedBox(height: 20),
 
             if (esOrganizador) ...[
               ElevatedButton.icon(
@@ -92,7 +133,10 @@ class HomeRolScreen extends StatelessWidget {
               ElevatedButton.icon(
                 icon: const Icon(Icons.location_city),
                 label: const Text('Consultar categorías y recintos'),
-                onPressed: () => abrirPantalla(context, const CatalogoScreen()),
+                onPressed: () => abrirPantalla(
+                  context,
+                  const CatalogoScreen(),
+                ),
               ),
             ],
 
@@ -111,8 +155,10 @@ class HomeRolScreen extends StatelessWidget {
               ElevatedButton.icon(
                 icon: const Icon(Icons.assignment),
                 label: const Text('Mis inscripciones'),
-                onPressed: () =>
-                    abrirPantalla(context, const MisInscripcionesScreen()),
+                onPressed: () => abrirPantalla(
+                  context,
+                  const MisInscripcionesScreen(),
+                ),
               ),
 
               const SizedBox(height: 14),
@@ -120,7 +166,10 @@ class HomeRolScreen extends StatelessWidget {
               ElevatedButton.icon(
                 icon: const Icon(Icons.category),
                 label: const Text('Catálogo de recintos'),
-                onPressed: () => abrirPantalla(context, const CatalogoScreen()),
+                onPressed: () => abrirPantalla(
+                  context,
+                  const CatalogoScreen(),
+                ),
               ),
             ],
 
@@ -128,8 +177,10 @@ class HomeRolScreen extends StatelessWidget {
               ElevatedButton.icon(
                 icon: const Icon(Icons.fact_check),
                 label: const Text('Control de acceso'),
-                onPressed: () =>
-                    abrirPantalla(context, const AccesoEventosScreen()),
+                onPressed: () => abrirPantalla(
+                  context,
+                  const AccesoEventosScreen(),
+                ),
               ),
 
               const SizedBox(height: 16),
