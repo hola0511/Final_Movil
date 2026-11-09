@@ -1,0 +1,75 @@
+
+{
+  "categorias": [
+    {
+      "id": "CAT001",
+      "nombre": "Tecnología",
+      "descripcion": "Conferencias y talleres tecnológicos"
+    },
+    {
+      "id": "CAT002",
+      "nombre": "Educación",
+      "descripcion": "Actividades académicas y formativas"
+    },
+    {
+      "id": "CAT003",
+      "nombre": "Cultura",
+      "descripcion": "Eventos culturales y artísticos"
+    },
+    {
+      "id": "CAT004",
+      "nombre": "Emprendimiento",
+      "descripcion": "Eventos sobre innovación y negocios"
+    }
+  ],
+  "recintos": [
+    {
+      "id": "REC001",
+      "nombre": "Auditorio Principal",
+      "ubicacion": "Bloque A",
+      "capacidadReferencia": 50
+    },
+    {
+      "id": "REC002",
+      "nombre": "Sala de Conferencias",
+      "ubicacion": "Bloque B",
+      "capacidadReferencia": 30
+    },
+    {
+      "id": "REC003",
+      "nombre": "Laboratorio de Informática",
+      "ubicacion": "Bloque C",
+      "capacidadReferencia": 25
+    },
+    {
+      "id": "REC004",
+      "nombre": "Salón de Innovación",
+      "ubicacion": "Bloque D",
+      "capacidadReferencia": 40
+    },
+    {
+      "id": "REC005",
+      "nombre": "Aula Múltiple",
+      "ubicacion": "Bloque E",
+      "capacidadReferencia": 35
+    },
+    {
+      "id": "REC006",
+      "nombre": "Sala de Reuniones",
+      "ubicacion": "Bloque Administrativo",
+      "capacidadReferencia": 15
+    },
+    {
+      "id": "REC007",
+      "nombre": "Auditorio de Ingeniería",
+      "ubicacion": "Facultad de Ingeniería",
+      "capacidadReferencia": 45
+    },
+    {
+      "id": "REC008",
+      "nombre": "Centro de Emprendimiento",
+      "ubicacion": "Bloque de Innovación",
+      "capacidadReferencia": 50
+    }
+  ]
+}
