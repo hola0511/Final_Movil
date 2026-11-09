@@ -1,22 +1,25 @@
-
 import 'package:flutter/material.dart';
+
 import '../models/evento.dart';
+import '../repositories/evento_repository.dart';
 import '../utils/evento_validator.dart';
 
 class CrearEventoScreen extends StatefulWidget {
   const CrearEventoScreen({super.key});
 
   @override
-  State<CrearEventoScreen> createState() =>
-      _CrearEventoScreenState();
+  State<CrearEventoScreen> createState() => _CrearEventoScreenState();
 }
 
 class _CrearEventoScreenState extends State<CrearEventoScreen> {
   final nombreController = TextEditingController();
   final capacidadController = TextEditingController();
 
+  final repository = EventoRepository();
+
   DateTime? inicio;
   DateTime? fin;
+  bool guardando = false;
 
   @override
   void dispose() {
@@ -27,16 +30,11 @@ class _CrearEventoScreenState extends State<CrearEventoScreen> {
 
   Future<void> seleccionarFecha(bool esInicio) async {
     final ahora = DateTime.now();
-    final primerDia = DateTime(
-      ahora.year,
-      ahora.month,
-      ahora.day,
-    );
 
     final fecha = await showDatePicker(
       context: context,
-      initialDate: primerDia,
-      firstDate: primerDia,
+      initialDate: ahora,
+      firstDate: DateTime(ahora.year, ahora.month, ahora.day),
       lastDate: DateTime(2100),
     );
 
@@ -49,61 +47,52 @@ class _CrearEventoScreenState extends State<CrearEventoScreen> {
 
     if (hora == null || !mounted) return;
 
-    final seleccion = DateTime(
-      fecha.year,
-      fecha.month,
-      fecha.day,
-      hora.hour,
-      hora.minute,
-    );
-
     setState(() {
+      final resultado = DateTime(
+        fecha.year,
+        fecha.month,
+        fecha.day,
+        hora.hour,
+        hora.minute,
+      );
+
       if (esInicio) {
-        inicio = seleccion;
+        inicio = resultado;
       } else {
-        fin = seleccion;
+        fin = resultado;
       }
     });
   }
 
   String formatoFecha(DateTime? fecha) {
-    if (fecha == null) return 'Seleccionar fecha y hora';
-
-    String dosDigitos(int valor) =>
-        valor.toString().padLeft(2, '0');
-
-    return '${dosDigitos(fecha.day)}/'
-        '${dosDigitos(fecha.month)}/'
-        '${fecha.year} '
-        '${dosDigitos(fecha.hour)}:'
-        '${dosDigitos(fecha.minute)}';
-  }
-
-  void mostrarMensaje(String mensaje, bool exito) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(mensaje),
-        backgroundColor: exito ? Colors.green : Colors.red,
-      ),
-    );
-  }
-
-  void validarFormulario() {
-    final capacidad =
-        int.tryParse(capacidadController.text.trim());
-
-    if (capacidad == null) {
-      mostrarMensaje('Ingresa una capacidad válida', false);
-      return;
+    if (fecha == null) {
+      return 'Seleccionar fecha y hora';
     }
 
-    if (inicio == null || fin == null) {
-      mostrarMensaje('Selecciona ambas fechas', false);
+    String dos(int valor) => valor.toString().padLeft(2, '0');
+
+    return '${dos(fecha.day)}/${dos(fecha.month)}/'
+        '${fecha.year} ${dos(fecha.hour)}:'
+        '${dos(fecha.minute)}';
+  }
+
+  void mostrarMensaje(String mensaje) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(mensaje)));
+  }
+
+  Future<void> guardarEvento() async {
+    if (guardando) return;
+
+    final capacidad = int.tryParse(capacidadController.text.trim());
+
+    if (capacidad == null || inicio == null || fin == null) {
+      mostrarMensaje('Completa todos los campos');
       return;
     }
 
     final evento = Evento(
-      nombre: nombreController.text,
+      nombre: nombreController.text.trim(),
       capacidad: capacidad,
       inicio: inicio!,
       fin: fin!,
@@ -112,42 +101,52 @@ class _CrearEventoScreenState extends State<CrearEventoScreen> {
     final error = EventoValidator.validar(evento);
 
     if (error != null) {
-      mostrarMensaje(error, false);
+      mostrarMensaje(error);
       return;
     }
 
-    mostrarMensaje(
-      'Evento validado correctamente',
-      true,
-    );
+    setState(() => guardando = true);
+
+    try {
+      await repository.crearEvento(evento);
+
+      if (!mounted) return;
+
+      mostrarMensaje('Evento guardado como borrador');
+
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+
+      mostrarMensaje('No se pudo guardar: $e');
+    } finally {
+      if (mounted) {
+        setState(() => guardando = false);
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Crear evento'),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-      ),
+      appBar: AppBar(title: const Text('Crear evento')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
           const Text(
-            'Registrar evento',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
+            'Nuevo evento',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 10),
           const Text(
-            'Completa los datos y valida el evento.',
+            'Los eventos se guardan inicialmente '
+            'como borradores.',
           ),
-          const SizedBox(height: 25),
+          const SizedBox(height: 24),
 
           TextField(
             controller: nombreController,
+            enabled: !guardando,
             decoration: const InputDecoration(
               labelText: 'Nombre del evento',
               prefixIcon: Icon(Icons.event),
@@ -155,10 +154,11 @@ class _CrearEventoScreenState extends State<CrearEventoScreen> {
             ),
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
           TextField(
             controller: capacidadController,
+            enabled: !guardando,
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(
               labelText: 'Capacidad (1 a 50)',
@@ -167,37 +167,32 @@ class _CrearEventoScreenState extends State<CrearEventoScreen> {
             ),
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
           Card(
             child: ListTile(
               leading: const Icon(Icons.calendar_today),
               title: const Text('Fecha de inicio'),
               subtitle: Text(formatoFecha(inicio)),
-              onTap: () => seleccionarFecha(true),
+              onTap: guardando ? null : () => seleccionarFecha(true),
             ),
           ),
 
           Card(
             child: ListTile(
-              leading: const Icon(Icons.event_available),
+              leading: const Icon(Icons.schedule),
               title: const Text('Fecha de finalización'),
               subtitle: Text(formatoFecha(fin)),
-              onTap: () => seleccionarFecha(false),
+              onTap: guardando ? null : () => seleccionarFecha(false),
             ),
           ),
 
-          const SizedBox(height: 30),
+          const SizedBox(height: 24),
 
           ElevatedButton.icon(
-            onPressed: validarFormulario,
-            icon: const Icon(Icons.check_circle),
-            label: const Text('Validar evento'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.all(16),
-              backgroundColor: Colors.indigo,
-              foregroundColor: Colors.white,
-            ),
+            onPressed: guardando ? null : guardarEvento,
+            icon: const Icon(Icons.save),
+            label: Text(guardando ? 'Guardando...' : 'Guardar borrador'),
           ),
         ],
       ),

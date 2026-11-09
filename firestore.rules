@@ -1,0 +1,387 @@
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    function usuarioPath(uid) {
+      return /databases/$(database)/documents/usuarios/$(uid);
+    }
+
+    function eventoPath(eventoId) {
+      return /databases/$(database)/documents/eventos/$(eventoId);
+    }
+
+    function inscripcionPath(eventoId, uid) {
+      return /databases/$(database)/documents/inscripciones/$(eventoId + '_' + uid);
+    }
+
+    function tieneRol(rol) {
+      return autenticado()
+        && get(usuarioPath(request.auth.uid)).data.rol == rol;
+    }
+
+    function esOrganizador() {
+      return tieneRol('organizador');
+    }
+
+    function esParticipante() {
+      return tieneRol('participante');
+    }
+
+    function esAuxiliar() {
+      return tieneRol('auxiliar_acceso');
+    }
+
+    function eventoValido(d) {
+      return d.nombre is string
+        && d.nombre.size() > 0
+        && d.nombre.size() <= 150
+        && d.capacidad is int
+        && d.capacidad >= 1
+        && d.capacidad <= 50
+        && d.confirmados is int
+        && d.confirmados >= 0
+        && d.confirmados <= d.capacidad
+        && d.inicio is timestamp
+        && d.fin is timestamp
+        && d.fin > d.inicio
+        && d.organizadorUid is string;
+    }
+
+    function soloEstadoYFecha() {
+      return request.resource.data.diff(resource.data)
+        .affectedKeys().hasOnly([
+          'estado',
+          'updatedAt'
+        ])
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function cambioEstadoOrganizador() {
+      return esOrganizador()
+        && resource.data.organizadorUid == request.auth.uid
+        && eventoValido(request.resource.data)
+        && soloEstadoYFecha()
+        && (
+          (
+            resource.data.estado == 'BORRADOR'
+            && request.resource.data.estado == 'ABIERTO'
+            && request.resource.data.inicio > request.time
+          )
+          ||
+          (
+            resource.data.estado == 'ABIERTO'
+            && request.resource.data.estado ==
+               'INSCRIPCIONES_CERRADAS'
+          )
+          ||
+          (
+            resource.data.estado ==
+              'INSCRIPCIONES_CERRADAS'
+            && request.resource.data.estado == 'FINALIZADO'
+            && resource.data.fin <= request.time
+          )
+        );
+    }
+
+    function contadorConfirmacion(eventoId) {
+      let uid = request.auth.uid;
+      let insPath = inscripcionPath(eventoId, uid);
+
+      return resource.data.estado == 'ABIERTO'
+        && resource.data.inicio > request.time
+        && resource.data.confirmados < resource.data.capacidad
+        && request.resource.data.confirmados ==
+           resource.data.confirmados + 1
+        && request.resource.data.ultimaOperacionUid == uid
+        && request.resource.data.ultimaOperacionTipo == 'CONFIRMAR'
+        && !exists(insPath)
+        && existsAfter(insPath)
+        && getAfter(insPath).data.estado == 'CONFIRMADA'
+        && getAfter(insPath).data.eventoId == eventoId
+        && getAfter(insPath).data.participanteUid == uid
+        && getAfter(insPath).data.fechaConfirmacion == request.time;
+    }
+
+    function contadorCancelacion(eventoId) {
+      let uid = request.auth.uid;
+      let insPath = inscripcionPath(eventoId, uid);
+
+      return resource.data.estado != 'FINALIZADO'
+        && resource.data.inicio >=
+           request.time + duration.value(1, 'h')
+        && resource.data.confirmados > 0
+        && request.resource.data.confirmados ==
+           resource.data.confirmados - 1
+        && request.resource.data.ultimaOperacionUid == uid
+        && request.resource.data.ultimaOperacionTipo == 'CANCELAR'
+        && exists(insPath)
+        && get(insPath).data.estado == 'CONFIRMADA'
+        && getAfter(insPath).data.estado == 'CANCELADA'
+        && getAfter(insPath).data.fechaCancelacion == request.time;
+    }
+
+    function cambioContador(eventoId) {
+      return esParticipante()
+        && eventoValido(request.resource.data)
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data)
+             .affectedKeys().hasOnly([
+               'confirmados',
+               'ultimaOperacionUid',
+               'ultimaOperacionTipo',
+               'updatedAt'
+             ])
+        && (
+          contadorConfirmacion(eventoId)
+          || contadorCancelacion(eventoId)
+        );
+    }
+
+    function ingresoValido() {
+      let evento = get(
+        eventoPath(resource.data.eventoId)
+      ).data;
+
+      return esAuxiliar()
+        && resource.data.estado == 'CONFIRMADA'
+        && request.resource.data.estado ==
+           'INGRESO_REGISTRADO'
+        && request.resource.data.diff(resource.data)
+             .affectedKeys().hasOnly([
+               'estado',
+               'fechaIngreso'
+             ])
+        && request.resource.data.fechaIngreso == request.time
+        && (
+          evento.estado == 'ABIERTO'
+          || evento.estado == 'INSCRIPCIONES_CERRADAS'
+        )
+        && evento.inicio <= request.time
+        && evento.fin > request.time;
+    }
+
+    function ausenciaValida() {
+      let evento = get(
+        eventoPath(resource.data.eventoId)
+      ).data;
+
+      return esAuxiliar()
+        && resource.data.estado == 'CONFIRMADA'
+        && request.resource.data.estado == 'AUSENTE'
+        && request.resource.data.diff(resource.data)
+             .affectedKeys().hasOnly([
+               'estado',
+               'fechaAusencia'
+             ])
+        && request.resource.data.fechaAusencia == request.time
+        && evento.estado == 'FINALIZADO'
+        && evento.fin <= request.time;
+    }
+
+    match /usuarios/{uid} {
+
+      allow get: if autenticado()
+        && request.auth.uid == uid;
+
+      allow list: if false;
+
+      allow create: if autenticado()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly([
+          'nombre',
+          'email',
+          'rol',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'nombre',
+          'email',
+          'rol',
+          'createdAt'
+        ])
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.email ==
+           request.auth.token.email
+        && request.resource.data.rol == 'participante'
+        && request.resource.data.createdAt == request.time;
+
+      allow update, delete: if false;
+    }
+
+    match /eventos/{eventoId} {
+
+      allow get: if autenticado()
+        && (
+          resource.data.estado == 'ABIERTO'
+          || resource.data.organizadorUid == request.auth.uid
+          || (
+            esAuxiliar()
+            && resource.data.estado in [
+              'ABIERTO',
+              'INSCRIPCIONES_CERRADAS',
+              'FINALIZADO'
+            ]
+          )
+          || exists(
+            inscripcionPath(eventoId, request.auth.uid)
+          )
+        );
+
+      allow list: if autenticado()
+        && (
+          resource.data.estado == 'ABIERTO'
+          || resource.data.organizadorUid == request.auth.uid
+          || (
+            esAuxiliar()
+            && resource.data.estado in [
+              'ABIERTO',
+              'INSCRIPCIONES_CERRADAS',
+              'FINALIZADO'
+            ]
+          )
+        );
+
+      allow create: if esOrganizador()
+        && request.resource.data.keys().hasOnly([
+          'nombre',
+          'capacidad',
+          'inicio',
+          'fin',
+          'organizadorUid',
+          'estado',
+          'confirmados',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'nombre',
+          'capacidad',
+          'inicio',
+          'fin',
+          'organizadorUid',
+          'estado',
+          'confirmados',
+          'createdAt',
+          'updatedAt'
+        ])
+        && eventoValido(request.resource.data)
+        && request.resource.data.inicio > request.time
+        && request.resource.data.organizadorUid ==
+           request.auth.uid
+        && request.resource.data.estado == 'BORRADOR'
+        && request.resource.data.confirmados == 0
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if cambioEstadoOrganizador()
+        || (
+          autenticado()
+          && cambioContador(eventoId)
+        );
+
+      allow delete: if false;
+    }
+
+    match /inscripciones/{inscripcionId} {
+
+      allow get: if autenticado()
+        && (
+          inscripcionId.matches(
+            '.*_' + request.auth.uid
+          )
+          || esAuxiliar()
+        );
+
+      allow list: if autenticado()
+        && (
+          resource.data.participanteUid == request.auth.uid
+          || esAuxiliar()
+        );
+
+      allow create: if esParticipante()
+        && request.resource.data.keys().hasOnly([
+          'eventoId',
+          'participanteUid',
+          'estado',
+          'fechaConfirmacion',
+          'fechaCancelacion'
+        ])
+        && request.resource.data.keys().hasAll([
+          'eventoId',
+          'participanteUid',
+          'estado',
+          'fechaConfirmacion',
+          'fechaCancelacion'
+        ])
+        && inscripcionId ==
+           request.resource.data.eventoId + '_' +
+           request.auth.uid
+        && request.resource.data.participanteUid ==
+           request.auth.uid
+        && request.resource.data.estado == 'CONFIRMADA'
+        && request.resource.data.fechaConfirmacion ==
+           request.time
+        && request.resource.data.fechaCancelacion == null
+        && get(eventoPath(request.resource.data.eventoId))
+             .data.estado == 'ABIERTO'
+        && get(eventoPath(request.resource.data.eventoId))
+             .data.inicio > request.time
+        && get(eventoPath(request.resource.data.eventoId))
+             .data.confirmados <
+           get(eventoPath(request.resource.data.eventoId))
+             .data.capacidad
+        && getAfter(eventoPath(request.resource.data.eventoId))
+             .data.confirmados ==
+           get(eventoPath(request.resource.data.eventoId))
+             .data.confirmados + 1
+        && getAfter(eventoPath(request.resource.data.eventoId))
+             .data.ultimaOperacionUid == request.auth.uid
+        && getAfter(eventoPath(request.resource.data.eventoId))
+             .data.ultimaOperacionTipo == 'CONFIRMAR';
+
+      allow update: if (
+          esParticipante()
+          && resource.data.participanteUid == request.auth.uid
+          && resource.data.estado == 'CONFIRMADA'
+          && request.resource.data.estado == 'CANCELADA'
+          && request.resource.data.diff(resource.data)
+               .affectedKeys().hasOnly([
+                 'estado',
+                 'fechaCancelacion'
+               ])
+          && request.resource.data.fechaCancelacion ==
+             request.time
+          && get(eventoPath(resource.data.eventoId))
+               .data.estado != 'FINALIZADO'
+          && get(eventoPath(resource.data.eventoId))
+               .data.inicio >=
+             request.time + duration.value(1, 'h')
+          && get(eventoPath(resource.data.eventoId))
+               .data.confirmados > 0
+          && getAfter(eventoPath(resource.data.eventoId))
+               .data.confirmados ==
+             get(eventoPath(resource.data.eventoId))
+               .data.confirmados - 1
+          && getAfter(eventoPath(resource.data.eventoId))
+               .data.ultimaOperacionUid == request.auth.uid
+          && getAfter(eventoPath(resource.data.eventoId))
+               .data.ultimaOperacionTipo == 'CANCELAR'
+        )
+        || ingresoValido()
+        || ausenciaValida();
+
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

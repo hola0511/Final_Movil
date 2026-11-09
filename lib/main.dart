@@ -1,8 +1,17 @@
 
 import 'package:flutter/material.dart';
-import 'screens/listado_eventos_screen.dart';
+import 'package:firebase_core/firebase_core.dart';
 
-void main() {
+import 'firebase_options.dart';
+import 'screens/auth/auth_gate.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   runApp(const EventosApp());
 }
 
@@ -20,7 +29,7 @@ class EventosApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: ListadoEventosScreen(),
+      home: const AuthGate(),
     );
   }
 }

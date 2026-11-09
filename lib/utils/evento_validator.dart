@@ -1,4 +1,3 @@
-
 import '../models/evento.dart';
 
 class EventoValidator {
