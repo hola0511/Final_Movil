@@ -1,39 +1,22 @@
-
 import 'package:flutter/material.dart';
+
 import '../../services/auth_service.dart';
+import '../lista_eventos_screen.dart';
 
 class HomeRolScreen extends StatelessWidget {
   final String nombre;
   final String rol;
 
-  const HomeRolScreen({
-    super.key,
-    required this.nombre,
-    required this.rol,
-  });
+  const HomeRolScreen({super.key, required this.nombre, required this.rol});
 
   @override
   Widget build(BuildContext context) {
-    String titulo;
-    IconData icono;
-
-    switch (rol) {
-      case 'organizador':
-        titulo = 'Panel del organizador';
-        icono = Icons.event;
-        break;
-      case 'auxiliar_acceso':
-        titulo = 'Control de acceso';
-        icono = Icons.verified_user;
-        break;
-      default:
-        titulo = 'Panel del participante';
-        icono = Icons.people;
-    }
+    final esOrganizador = rol == 'organizador';
+    final esParticipante = rol == 'participante';
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(titulo),
+        title: const Text('Eventos G62-5'),
         actions: [
           IconButton(
             tooltip: 'Cerrar sesión',
@@ -44,26 +27,49 @@ class HomeRolScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: Center(
+      body: Padding(
+        padding: const EdgeInsets.all(20),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Icon(
-              icono,
-              size: 70,
-              color: Colors.indigo,
-            ),
-            const SizedBox(height: 20),
             Text(
               'Bienvenido, $nombre',
-              style: const TextStyle(fontSize: 22),
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 12),
-            Text('Tu rol es: $rol'),
-            const SizedBox(height: 20),
-            const Text(
-              'Autenticación configurada correctamente',
-            ),
+
+            const SizedBox(height: 8),
+            Text('Rol: $rol'),
+            const SizedBox(height: 30),
+
+            if (esOrganizador || esParticipante)
+              ElevatedButton.icon(
+                icon: const Icon(Icons.event),
+                label: Text(
+                  esOrganizador
+                      ? 'Administrar mis eventos'
+                      : 'Consultar eventos',
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          ListaEventosScreen(esOrganizador: esOrganizador),
+                    ),
+                  );
+                },
+              ),
+
+            if (rol == 'auxiliar_acceso')
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'El control de asistencia se '
+                    'implementará en la siguiente etapa.',
+                  ),
+                ),
+              ),
           ],
         ),
       ),
