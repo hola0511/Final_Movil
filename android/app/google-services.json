@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "237072550907",
+    "project_id": "eventos-g62-5",
+    "storage_bucket": "eventos-g62-5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:237072550907:android:60109dced492673209595e",
+        "android_client_info": {
+          "package_name": "com.example.eventos_g62_5"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBKrA2olDM7RTe9o6XdNHFtaUIJl99cYug"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
