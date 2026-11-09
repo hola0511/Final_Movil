@@ -257,6 +257,8 @@ service cloud.firestore {
           'organizadorUid',
           'estado',
           'confirmados',
+          'categoriaId',
+          'recintoId',
           'createdAt',
           'updatedAt'
         ])
@@ -268,10 +270,16 @@ service cloud.firestore {
           'organizadorUid',
           'estado',
           'confirmados',
+          'categoriaId',
+          'recintoId',
           'createdAt',
           'updatedAt'
         ])
         && eventoValido(request.resource.data)
+        && request.resource.data.categoriaId is string
+        && request.resource.data.categoriaId.size() > 0
+        && request.resource.data.recintoId is string
+        && request.resource.data.recintoId.size() > 0
         && request.resource.data.inicio > request.time
         && request.resource.data.organizadorUid ==
            request.auth.uid
