@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -9,6 +11,8 @@ class InscripcionRepository {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final AppDatabase _local = AppDatabase.instance;
 
+  // Impide sincronizaciones simultáneas
+  // del mismo usuario dentro de esta aplicación.
   static final Set<String> _sincronizando = {};
 
   String get _uid {
@@ -29,146 +33,199 @@ class InscripcionRepository {
     return _local.observarSolicitudes(_uid);
   }
 
+  // LOCAL-FIRST:
+  // La operación termina después de guardar
+  // en SQLite, sin esperar a Firestore.
   Future<void> confirmarInscripcion(String eventoId) async {
     final uid = _uid;
+
     final id = _idInscripcion(eventoId, uid);
 
-    // Se registra localmente antes de intentar Firestore.
     await _local.guardarSolicitud(id: id, eventoId: eventoId, usuarioUid: uid);
 
-    // Se intenta sincronizar. Si no hay Internet,
-    // la solicitud permanece guardada en SQLite.
-    await sincronizarPendientes();
+    // No bloqueamos la interfaz esperando la red.
+    // Los errores se registran en SQLite.
+    unawaited(_sincronizarSinPropagar());
+  }
+
+  Future<void> _sincronizarSinPropagar() async {
+    try {
+      await sincronizarPendientes();
+    } catch (_) {
+      // Una futura apertura de Mis inscripciones
+      // podrá reintentar las solicitudes pendientes.
+    }
   }
 
   Future<void> sincronizarPendientes() async {
     final uid = _uid;
 
-    // Impide ejecutar dos sincronizaciones al mismo
-    // tiempo para el mismo usuario.
-    if (!_sincronizando.add(uid)) return;
+    if (!_sincronizando.add(uid)) {
+      return;
+    }
 
     try {
-      final registros = await _local.pendientes(uid);
+      final pendientes = await _local.pendientes(uid);
 
-      for (final registro in registros) {
-        // Si se cambió de cuenta, no enviar datos
-        // del usuario anterior.
+      for (final solicitud in pendientes) {
         if (_auth.currentUser?.uid != uid) {
           break;
         }
 
-        await _sincronizarUno(registro, uid);
+        // Releemos el registro para comprobar
+        // que sigue pendiente y sin cambios.
+        final actual = await _local.obtener(solicitud.id);
+
+        if (actual == null ||
+            actual.usuarioUid != uid ||
+            actual.estadoSync != 'PENDIENTE') {
+          continue;
+        }
+
+        await _sincronizarUno(actual, uid);
       }
     } finally {
       _sincronizando.remove(uid);
     }
   }
 
-  Future<void> _sincronizarUno(SolicitudesLocale registro, String uid) async {
+  Future<void> _sincronizarUno(SolicitudesLocale solicitud, String uid) async {
     try {
-      await _confirmarRemotamente(registro.eventoId, uid);
+      // Retorna el estado real de Firestore.
+      // Puede ser una inscripción previamente
+      // confirmada, o un estado posterior.
+      final estadoRemoto = await _confirmarRemotamente(solicitud.eventoId, uid);
 
-      if (_auth.currentUser?.uid != uid) return;
+      if (_auth.currentUser?.uid != uid) {
+        return;
+      }
 
       await _local.actualizarResultado(
-        id: registro.id,
-        versionEsperada: registro.versionLocal,
-        estadoNegocio: 'CONFIRMADA',
+        id: solicitud.id,
+        versionEsperada: solicitud.versionLocal,
+        estadoNegocio: estadoRemoto,
         estadoSync: 'SINCRONIZADO',
       );
-    } on FirebaseException catch (error) {
-      if (_auth.currentUser?.uid != uid) return;
+    } on StateError catch (error) {
+      if (_auth.currentUser?.uid != uid) {
+        return;
+      }
 
+      await _local.registrarConflicto(
+        id: solicitud.id,
+        versionEsperada: solicitud.versionLocal,
+        motivo: error.message.toString(),
+      );
+    } on FirebaseException catch (error) {
+      if (_auth.currentUser?.uid != uid) {
+        return;
+      }
+
+      // Estos errores pueden corresponder
+      // a problemas temporales.
       if (error.code == 'unavailable' ||
           error.code == 'deadline-exceeded' ||
           error.code == 'network-request-failed' ||
           error.code == 'aborted') {
         await _local.actualizarResultado(
-          id: registro.id,
-          versionEsperada: registro.versionLocal,
+          id: solicitud.id,
+          versionEsperada: solicitud.versionLocal,
           estadoNegocio: 'SOLICITADA',
           estadoSync: 'PENDIENTE',
           error:
-              'No se pudo conectar con Firestore. '
-              'Puedes reintentar.',
+              'Error temporal: ${error.code}. '
+              'Reintenta cuando tengas conexión.',
         );
-      } else if (error.code == 'permission-denied' ||
+        return;
+      }
+
+      // Las reglas rechazaron la operación
+      // o Firestore reportó otra condición.
+      // Conservamos el motivo para diagnóstico.
+      if (error.code == 'permission-denied' ||
           error.code == 'failed-precondition' ||
           error.code == 'not-found') {
-        await _local.actualizarResultado(
-          id: registro.id,
-          versionEsperada: registro.versionLocal,
-          estadoNegocio: 'SOLICITADA',
-          estadoSync: 'CONFLICTO',
-          error: 'Operación rechazada: ${error.code}',
+        await _local.registrarConflicto(
+          id: solicitud.id,
+          versionEsperada: solicitud.versionLocal,
+          motivo:
+              'Firestore rechazó la operación: '
+              '${error.code}. Revisa permisos y datos.',
         );
-      } else {
-        await _local.actualizarResultado(
-          id: registro.id,
-          versionEsperada: registro.versionLocal,
-          estadoNegocio: 'SOLICITADA',
-          estadoSync: 'PENDIENTE',
-          error: 'Error temporal: ${error.code}',
-        );
+        return;
       }
-    } on StateError catch (error) {
-      if (_auth.currentUser?.uid != uid) return;
 
       await _local.actualizarResultado(
-        id: registro.id,
-        versionEsperada: registro.versionLocal,
-        estadoNegocio: 'SOLICITADA',
-        estadoSync: 'CONFLICTO',
-        error: error.message.toString(),
-      );
-    } catch (_) {
-      if (_auth.currentUser?.uid != uid) return;
-
-      await _local.actualizarResultado(
-        id: registro.id,
-        versionEsperada: registro.versionLocal,
+        id: solicitud.id,
+        versionEsperada: solicitud.versionLocal,
         estadoNegocio: 'SOLICITADA',
         estadoSync: 'PENDIENTE',
         error:
-            'No se completó el envío. '
-            'Comprueba la conexión y reintenta.',
+            'No fue posible completar el envío: '
+            '${error.code}',
+      );
+    } catch (_) {
+      if (_auth.currentUser?.uid != uid) {
+        return;
+      }
+
+      await _local.actualizarResultado(
+        id: solicitud.id,
+        versionEsperada: solicitud.versionLocal,
+        estadoNegocio: 'SOLICITADA',
+        estadoSync: 'PENDIENTE',
+        error:
+            'No fue posible sincronizar. '
+            'Puedes reintentar.',
       );
     }
   }
 
-  Future<void> _confirmarRemotamente(String eventoId, String uid) async {
+  Future<String> _confirmarRemotamente(String eventoId, String uid) async {
     final eventoRef = _db.collection('eventos').doc(eventoId);
 
     final inscripcionRef = _db
         .collection('inscripciones')
         .doc(_idInscripcion(eventoId, uid));
 
-    await _db.runTransaction((tx) async {
-      // Todas las lecturas van antes de escribir.
+    return _db.runTransaction<String>((tx) async {
+      // Todas las lecturas se hacen antes
+      // de cualquier escritura.
       final eventoSnap = await tx.get(eventoRef);
+
       final inscripcionSnap = await tx.get(inscripcionRef);
 
-      if (!eventoSnap.exists) {
-        throw StateError('El evento ya no existe');
-      }
-
-      // Idempotencia:
-      // Si una confirmación anterior tuvo éxito,
-      // no incrementamos el contador otra vez.
       if (inscripcionSnap.exists) {
-        final datos = inscripcionSnap.data()!;
+        final existente = inscripcionSnap.data()!;
 
-        if (datos['eventoId'] == eventoId &&
-            datos['participanteUid'] == uid &&
-            datos['estado'] == 'CONFIRMADA') {
-          return;
+        if (existente['eventoId'] != eventoId ||
+            existente['participanteUid'] != uid) {
+          throw StateError(
+            'El registro remoto no coincide '
+            'con la solicitud local.',
+          );
+        }
+
+        final estado = existente['estado'] as String;
+
+        // Si un envío anterior tuvo éxito,
+        // solo recuperamos su estado.
+        // No se aumenta el contador nuevamente.
+        if (estado == 'CONFIRMADA' ||
+            estado == 'INGRESO_REGISTRADO' ||
+            estado == 'AUSENTE' ||
+            estado == 'CANCELADA') {
+          return estado;
         }
 
         throw StateError(
-          'Ya existe un registro para este evento. '
-          'No se puede crear una nueva inscripción.',
+          'Existe una inscripción remota '
+          'con estado no reconocido: $estado',
         );
+      }
+
+      if (!eventoSnap.exists) {
+        throw StateError('El evento ya no existe');
       }
 
       final evento = eventoSnap.data()!;
@@ -176,10 +233,11 @@ class InscripcionRepository {
       final estado = evento['estado'] as String;
       final capacidad = evento['capacidad'] as int;
       final confirmados = evento['confirmados'] as int;
+
       final inicio = (evento['inicio'] as Timestamp).toDate();
 
       if (estado != 'ABIERTO') {
-        throw StateError('Las inscripciones están cerradas');
+        throw StateError('Las inscripciones ya no están abiertas');
       }
 
       if (!inicio.isAfter(DateTime.now())) {
@@ -204,17 +262,30 @@ class InscripcionRepository {
         'ultimaOperacionTipo': 'CONFIRMAR',
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
+      return 'CONFIRMADA';
     });
   }
 
   Future<void> cancelarInscripcion(String eventoId) async {
     final uid = _uid;
 
+    final id = _idInscripcion(eventoId, uid);
+
+    final local = await _local.obtener(id);
+
+    if (local != null &&
+        local.usuarioUid == uid &&
+        local.estadoSync == 'PENDIENTE') {
+      throw StateError(
+        'La solicitud todavía está pendiente. '
+        'Sincronízala antes de cancelar.',
+      );
+    }
+
     final eventoRef = _db.collection('eventos').doc(eventoId);
 
-    final inscripcionRef = _db
-        .collection('inscripciones')
-        .doc(_idInscripcion(eventoId, uid));
+    final inscripcionRef = _db.collection('inscripciones').doc(id);
 
     await _db.runTransaction((tx) async {
       final eventoSnap = await tx.get(eventoRef);
@@ -271,6 +342,10 @@ class InscripcionRepository {
         'updatedAt': FieldValue.serverTimestamp(),
       });
     });
+
+    // Se actualiza SQLite únicamente
+    // después de confirmar la transacción.
+    await _local.registrarCancelacion(id: id, uid: uid);
   }
 
   Stream<List<Inscripcion>> misInscripciones() {
@@ -280,12 +355,24 @@ class InscripcionRepository {
         .collection('inscripciones')
         .where('participanteUid', isEqualTo: uid)
         .snapshots()
-        .map(
-          (snapshot) => snapshot.docs.map(Inscripcion.desdeFirestore).toList(),
-        );
-  }
+        .asyncMap((snapshot) async {
+          final inscripciones = snapshot.docs
+              .map(Inscripcion.desdeFirestore)
+              .toList();
 
-  Future<void> descartarConflicto(String id) async {
-    await _local.eliminarIntentoFallido(id: id, uid: _uid);
+          // No utilizamos datos de caché como
+          // autoridad para actualizar SQLite.
+          if (!snapshot.metadata.isFromCache && _auth.currentUser?.uid == uid) {
+            for (final inscripcion in inscripciones) {
+              await _local.reflejarEstadoRemoto(
+                id: inscripcion.id,
+                uid: uid,
+                estado: inscripcion.estado,
+              );
+            }
+          }
+
+          return inscripciones;
+        });
   }
 }

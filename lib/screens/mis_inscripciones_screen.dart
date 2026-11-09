@@ -13,12 +13,13 @@ class MisInscripcionesScreen extends StatefulWidget {
 
 class _MisInscripcionesScreenState extends State<MisInscripcionesScreen>
     with WidgetsBindingObserver {
-  final repository = InscripcionRepository();
+  final InscripcionRepository repository = InscripcionRepository();
 
   late final Stream<List<SolicitudesLocale>> localStream;
   late final Stream<List<Inscripcion>> remotoStream;
 
   bool sincronizando = false;
+  String? cancelandoId;
 
   @override
   void initState() {
@@ -27,18 +28,20 @@ class _MisInscripcionesScreenState extends State<MisInscripcionesScreen>
     WidgetsBinding.instance.addObserver(this);
 
     localStream = repository.observarSolicitudesLocales();
+
     remotoStream = repository.misInscripciones();
 
-    // Intenta enviar pendientes al abrir esta pantalla.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) sincronizar();
+      if (mounted) {
+        sincronizar(mostrarMensaje: false);
+      }
     });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      sincronizar();
+      sincronizar(mostrarMensaje: false);
     }
   }
 
@@ -48,170 +51,55 @@ class _MisInscripcionesScreenState extends State<MisInscripcionesScreen>
     super.dispose();
   }
 
-  void mensaje(String texto) {
+  void mostrarAviso(String mensaje) {
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(texto)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(mensaje)));
   }
 
-  Future<void> sincronizar() async {
-    if (sincronizando || !mounted) return;
+  Future<void> sincronizar({bool mostrarMensaje = true}) async {
+    if (!mounted || sincronizando) return;
 
-    setState(() => sincronizando = true);
+    setState(() {
+      sincronizando = true;
+    });
 
     try {
       await repository.sincronizarPendientes();
 
       if (!mounted) return;
 
-      mensaje(
-        'Sincronización revisada. '
-        'Comprueba el estado de cada solicitud.',
-      );
+      if (mostrarMensaje) {
+        mostrarAviso(
+          'Revisión de sincronización terminada. '
+          'Consulta el estado de cada solicitud.',
+        );
+      }
     } catch (error) {
-      mensaje('No se pudo sincronizar: $error');
+      if (!mounted) return;
+
+      mostrarAviso('No se pudo ejecutar la sincronización: $error');
     } finally {
       if (mounted) {
-        setState(() => sincronizando = false);
+        setState(() {
+          sincronizando = false;
+        });
       }
     }
   }
 
-  Future<void> descartar(SolicitudesLocale solicitud) async {
-    final confirmar = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Descartar intento'),
-        content: const Text(
-          'Se eliminará el intento local rechazado. '
-          'Esto no elimina una inscripción remota.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Volver'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Descartar'),
-          ),
-        ],
-      ),
-    );
+  Future<void> cancelar(Inscripcion inscripcion) async {
+    if (cancelandoId != null) return;
 
-    if (confirmar != true || !mounted) return;
-
-    try {
-      await repository.descartarConflicto(solicitud.id);
-      mensaje('Intento local descartado');
-    } catch (error) {
-      mensaje('Error al descartar: $error');
-    }
-  }
-
-  Color colorSincronizacion(String estado) {
-    switch (estado) {
-      case 'SINCRONIZADO':
-        return Colors.green;
-      case 'CONFLICTO':
-        return Colors.red;
-      default:
-        return Colors.orange;
-    }
-  }
-
-  Widget construirLocales(List<SolicitudesLocale> solicitudes) {
-    if (solicitudes.isEmpty) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('No tienes solicitudes guardadas localmente.'),
-        ),
-      );
-    }
-
-    return Column(
-      children: solicitudes.map((solicitud) {
-        final pendiente = solicitud.estadoSync == 'PENDIENTE';
-
-        final conflicto = solicitud.estadoSync == 'CONFLICTO';
-
-        final sincronizado = solicitud.estadoSync == 'SINCRONIZADO';
-
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Solicitud local',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                SelectableText('Evento: ${solicitud.eventoId}'),
-                const SizedBox(height: 8),
-                Text(
-                  'Estado de negocio al sincronizar: '
-                  '${solicitud.estadoNegocio}',
-                ),
-                const SizedBox(height: 8),
-                Chip(
-                  label: Text(solicitud.estadoSync),
-                  backgroundColor: colorSincronizacion(solicitud.estadoSync)
-                      .withValues(alpha: 0.15),
-                ),
-                if (solicitud.ultimoError != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    'Detalle: ${solicitud.ultimoError}',
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                ],
-                if (pendiente) ...[
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Todavía no hay cupo confirmado.',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ],
-                if (conflicto) ...[
-                  const SizedBox(height: 8),
-                  const Text(
-                    'La solicitud fue rechazada '
-                    'por una condición del negocio.',
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: () => descartar(solicitud),
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('Descartar intento'),
-                  ),
-                ],
-                if (sincronizado) ...[
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Envío confirmado. Consulta el historial '
-                    'remoto para conocer el estado actual.',
-                  ),
-                ],
-              ],
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Future<void> cancelarInscripcion(Inscripcion inscripcion) async {
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Cancelar inscripción'),
         content: const Text(
-          '¿Quieres cancelar esta inscripción? '
-          'Solo se puede cancelar dentro del plazo.',
+          '¿Deseas cancelar esta inscripción? '
+          'El cupo se liberará si todavía estás '
+          'dentro del plazo permitido.',
         ),
         actions: [
           TextButton(
@@ -220,7 +108,7 @@ class _MisInscripcionesScreenState extends State<MisInscripcionesScreen>
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Cancelar inscripción'),
+            child: const Text('Confirmar'),
           ),
         ],
       ),
@@ -228,42 +116,177 @@ class _MisInscripcionesScreenState extends State<MisInscripcionesScreen>
 
     if (confirmar != true || !mounted) return;
 
+    setState(() {
+      cancelandoId = inscripcion.id;
+    });
+
     try {
       await repository.cancelarInscripcion(inscripcion.eventoId);
 
-      mensaje('Inscripción cancelada');
+      if (!mounted) return;
+
+      mostrarAviso('Inscripción cancelada correctamente');
     } catch (error) {
-      mensaje('No se pudo cancelar: $error');
+      if (!mounted) return;
+
+      mostrarAviso('No se pudo cancelar: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          cancelandoId = null;
+        });
+      }
     }
   }
 
-  Widget construirRemotas(List<Inscripcion> inscripciones) {
-    if (inscripciones.isEmpty) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('No hay inscripciones confirmadas en Firestore.'),
-        ),
-      );
+  Color colorEstadoSync(String estado) {
+    switch (estado) {
+      case 'SINCRONIZADO':
+        return Colors.green;
+      case 'CONFLICTO':
+        return Colors.red;
+      case 'PENDIENTE':
+        return Colors.orange;
+      default:
+        return Colors.grey;
     }
+  }
 
-    return Column(
-      children: inscripciones.map((inscripcion) {
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: ListTile(
-            title: Text('Evento: ${inscripcion.eventoId}'),
-            subtitle: Text('Estado real: ${inscripcion.estado}'),
-            trailing: inscripcion.estado == 'CONFIRMADA'
-                ? IconButton(
-                    tooltip: 'Cancelar inscripción',
-                    icon: const Icon(Icons.cancel_outlined),
-                    onPressed: () => cancelarInscripcion(inscripcion),
-                  )
-                : const Icon(Icons.history),
-          ),
-        );
-      }).toList(),
+  Widget solicitudLocal(SolicitudesLocale solicitud) {
+    final pendiente = solicitud.estadoSync == 'PENDIENTE';
+
+    final conflicto = solicitud.estadoSync == 'CONFLICTO';
+
+    final sincronizado = solicitud.estadoSync == 'SINCRONIZADO';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Solicitud local',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+            ),
+
+            const SizedBox(height: 8),
+
+            SelectableText('Evento: ${solicitud.eventoId}'),
+
+            const SizedBox(height: 8),
+
+            Text('Estado: ${solicitud.estadoNegocio}'),
+
+            const SizedBox(height: 8),
+
+            Chip(
+              label: Text(solicitud.estadoSync),
+              backgroundColor: colorEstadoSync(solicitud.estadoSync)
+                  .withValues(alpha: 0.15),
+            ),
+
+            if (pendiente) ...[
+              const SizedBox(height: 10),
+              const Text(
+                'Pendiente de confirmación. '
+                'Todavía no tienes un cupo reservado.',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ],
+
+            if (sincronizado) ...[
+              const SizedBox(height: 10),
+              const Text(
+                'Esta solicitud fue procesada '
+                'por Firestore.',
+              ),
+            ],
+
+            if (conflicto) ...[
+              const SizedBox(height: 10),
+              const Row(
+                children: [
+                  Icon(Icons.warning_amber, color: Colors.red),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Solicitud rechazada',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'El registro permanecerá guardado '
+                'para que puedas consultar el motivo.',
+              ),
+            ],
+
+            if (solicitud.ultimoError != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Detalle: ${solicitud.ultimoError}',
+                style: TextStyle(color: conflicto ? Colors.red : null),
+              ),
+            ],
+
+            const SizedBox(height: 10),
+
+            Text(
+              'Versión local: '
+              '${solicitud.versionLocal}',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget inscripcionRemota(Inscripcion inscripcion) {
+    final puedeCancelar = inscripcion.estado == 'CONFIRMADA';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Inscripción en Firestore',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+            ),
+
+            const SizedBox(height: 8),
+
+            SelectableText('Evento: ${inscripcion.eventoId}'),
+
+            const SizedBox(height: 8),
+
+            Text('Estado: ${inscripcion.estado}'),
+
+            if (puedeCancelar) ...[
+              const SizedBox(height: 12),
+
+              ElevatedButton.icon(
+                onPressed: cancelandoId == null
+                    ? () => cancelar(inscripcion)
+                    : null,
+                icon: const Icon(Icons.cancel_outlined),
+                label: Text(
+                  cancelandoId == inscripcion.id
+                      ? 'Cancelando...'
+                      : 'Cancelar inscripción',
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -275,11 +298,12 @@ class _MisInscripcionesScreenState extends State<MisInscripcionesScreen>
         actions: [
           IconButton(
             tooltip: 'Sincronizar pendientes',
-            onPressed: sincronizando ? null : sincronizar,
+            onPressed: sincronizando ? null : () => sincronizar(),
             icon: const Icon(Icons.sync),
           ),
         ],
       ),
+
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -287,11 +311,21 @@ class _MisInscripcionesScreenState extends State<MisInscripcionesScreen>
             'Solicitudes locales',
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
           ),
+
           const SizedBox(height: 8),
-          const Text('Las solicitudes pendientes no reservan cupo.'),
+
+          const Text(
+            'Las solicitudes se guardan primero '
+            'en SQLite y después se envían '
+            'a Firebase.',
+          ),
+
           const SizedBox(height: 16),
 
-          if (sincronizando) const LinearProgressIndicator(),
+          if (sincronizando) ...[
+            const LinearProgressIndicator(),
+            const SizedBox(height: 12),
+          ],
 
           StreamBuilder<List<SolicitudesLocale>>(
             stream: localStream,
@@ -307,14 +341,25 @@ class _MisInscripcionesScreenState extends State<MisInscripcionesScreen>
                 return const Center(child: CircularProgressIndicator());
               }
 
-              return construirLocales(snapshot.data!);
+              final solicitudes = snapshot.data!;
+
+              if (solicitudes.isEmpty) {
+                return const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('No tienes solicitudes locales.'),
+                  ),
+                );
+              }
+
+              return Column(children: solicitudes.map(solicitudLocal).toList());
             },
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
           ElevatedButton.icon(
-            onPressed: sincronizando ? null : sincronizar,
+            onPressed: sincronizando ? null : () => sincronizar(),
             icon: const Icon(Icons.sync),
             label: Text(
               sincronizando ? 'Sincronizando...' : 'Sincronizar pendientes',
@@ -327,11 +372,14 @@ class _MisInscripcionesScreenState extends State<MisInscripcionesScreen>
             'Historial remoto',
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
           ),
+
           const SizedBox(height: 8),
+
           const Text(
-            'Aquí aparecen las inscripciones '
-            'que Firestore conoce.',
+            'Aquí aparece el estado registrado '
+            'en Firebase Firestore.',
           ),
+
           const SizedBox(height: 16),
 
           StreamBuilder<List<Inscripcion>>(
@@ -340,7 +388,7 @@ class _MisInscripcionesScreenState extends State<MisInscripcionesScreen>
               if (snapshot.hasError) {
                 return const Text(
                   'No se pudo consultar Firestore. '
-                  'Las solicitudes locales siguen disponibles.',
+                  'Los datos locales siguen disponibles.',
                 );
               }
 
@@ -348,9 +396,24 @@ class _MisInscripcionesScreenState extends State<MisInscripcionesScreen>
                 return const Center(child: CircularProgressIndicator());
               }
 
-              return construirRemotas(snapshot.data!);
+              final inscripciones = snapshot.data!;
+
+              if (inscripciones.isEmpty) {
+                return const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('No hay inscripciones remotas.'),
+                  ),
+                );
+              }
+
+              return Column(
+                children: inscripciones.map(inscripcionRemota).toList(),
+              );
             },
           ),
+
+          const SizedBox(height: 24),
         ],
       ),
     );
