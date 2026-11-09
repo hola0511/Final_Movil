@@ -1,8 +1,16 @@
 
 import 'package:flutter/material.dart';
-import 'screens/crear_evento_screen.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'screens/auth/auth_gate.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   runApp(const EventosApp());
 }
 
@@ -20,7 +28,7 @@ class EventosApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const CrearEventoScreen(),
+      home: const AuthGate(),
     );
   }
 }
