@@ -10,6 +10,10 @@ class Evento {
   final String estado;
   final int confirmados;
 
+  // Nuevos campos
+  final String categoriaId;
+  final String recintoId;
+
   const Evento({
     this.id = '',
     required this.nombre,
@@ -19,6 +23,8 @@ class Evento {
     this.organizadorUid = '',
     this.estado = 'BORRADOR',
     this.confirmados = 0,
+    this.categoriaId = '',
+    this.recintoId = '',
   });
 
   factory Evento.desdeFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -30,9 +36,13 @@ class Evento {
       capacidad: datos['capacidad'] as int,
       inicio: (datos['inicio'] as Timestamp).toDate(),
       fin: (datos['fin'] as Timestamp).toDate(),
-      organizadorUid: datos['organizadorUid'] as String,
-      estado: datos['estado'] as String,
-      confirmados: datos['confirmados'] as int,
+      organizadorUid: datos['organizadorUid'] as String? ?? '',
+      estado: datos['estado'] as String? ?? 'BORRADOR',
+      confirmados: datos['confirmados'] as int? ?? 0,
+
+      // Compatibilidad con eventos antiguos
+      categoriaId: datos['categoriaId'] as String? ?? '',
+      recintoId: datos['recintoId'] as String? ?? '',
     );
   }
 
@@ -45,6 +55,8 @@ class Evento {
       'organizadorUid': organizadorUid,
       'estado': estado,
       'confirmados': confirmados,
+      'categoriaId': categoriaId,
+      'recintoId': recintoId,
     };
   }
 }

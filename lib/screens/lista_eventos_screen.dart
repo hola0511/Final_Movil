@@ -4,6 +4,7 @@ import '../models/evento.dart';
 import '../repositories/evento_repository.dart';
 import '../repositories/inscripcion_repository.dart';
 import 'crear_evento_screen.dart';
+import 'editar_evento_screen.dart';
 import 'mis_inscripciones_screen.dart';
 
 class ListaEventosScreen extends StatefulWidget {
@@ -107,12 +108,12 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
   }
 
   Future<void> cerrarInscripciones(Evento evento) async {
-    final confirmar = await confirmarAccion(
+    final confirmado = await confirmarAccion(
       'Cerrar inscripciones',
       '¿Quieres cerrar las inscripciones de este evento?',
     );
 
-    if (!confirmar || !mounted) return;
+    if (!confirmado || !mounted) return;
 
     await ejecutar(
       evento,
@@ -122,12 +123,12 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
   }
 
   Future<void> finalizarEvento(Evento evento) async {
-    final confirmar = await confirmarAccion(
+    final confirmado = await confirmarAccion(
       'Finalizar evento',
       '¿Quieres marcar este evento como finalizado?',
     );
 
-    if (!confirmar || !mounted) return;
+    if (!confirmado || !mounted) return;
 
     await ejecutar(
       evento,
@@ -137,14 +138,14 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
   }
 
   Future<void> inscribirse(Evento evento) async {
-    final confirmar = await confirmarAccion(
+    final confirmado = await confirmarAccion(
       'Solicitar inscripción',
-      'La solicitud se guardará primero en el '
-          'dispositivo. El cupo solo estará reservado '
-          'cuando Firestore confirme la inscripción.',
+      'La solicitud se guardará primero en el dispositivo. '
+          'El cupo solo estará reservado cuando Firestore '
+          'confirme la inscripción.',
     );
 
-    if (!confirmar || !mounted) return;
+    if (!confirmado || !mounted) return;
 
     await ejecutar(
       evento,
@@ -154,12 +155,32 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
     );
   }
 
+  Future<void> editar(Evento evento) async {
+    if (procesandoId != null) return;
+
+    final resultado = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => EditarEventoScreen(evento: evento)),
+    );
+
+    if (!mounted) return;
+
+    if (resultado == true) {
+      mostrarMensaje('Evento actualizado correctamente', exito: true);
+    }
+  }
+
   Widget tarjetaEvento(Evento evento) {
     final disponibles = evento.capacidad - evento.confirmados;
 
     final sinCupos = disponibles <= 0;
     final procesando = procesandoId == evento.id;
     final ahora = DateTime.now();
+
+    final editable =
+        widget.esOrganizador &&
+        (evento.estado == 'BORRADOR' || evento.estado == 'ABIERTO') &&
+        evento.inicio.isAfter(ahora);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -172,12 +193,17 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
               evento.nombre,
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
+
             const SizedBox(height: 12),
+
             Text('Inicio: ${fechaTexto(evento.inicio)}'),
             Text('Fin: ${fechaTexto(evento.fin)}'),
+
             const SizedBox(height: 12),
+
             Text('Capacidad: ${evento.capacidad}'),
             Text('Confirmados: ${evento.confirmados}'),
+
             Text(
               'Cupos disponibles: $disponibles',
               style: TextStyle(
@@ -185,11 +211,27 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
                 color: sinCupos ? Colors.red : Colors.green,
               ),
             ),
+
             const SizedBox(height: 12),
+
             Chip(label: Text(evento.estado)),
+
+            if (editable) ...[
+              const SizedBox(height: 12),
+
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: procesandoId == null ? () => editar(evento) : null,
+                  icon: const Icon(Icons.edit),
+                  label: const Text('Editar evento'),
+                ),
+              ),
+            ],
 
             if (widget.esOrganizador && evento.estado == 'BORRADOR') ...[
               const SizedBox(height: 12),
+
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -204,6 +246,7 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
 
             if (widget.esOrganizador && evento.estado == 'ABIERTO') ...[
               const SizedBox(height: 12),
+
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -221,6 +264,7 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
             if (widget.esOrganizador &&
                 evento.estado == 'INSCRIPCIONES_CERRADAS') ...[
               const SizedBox(height: 12),
+
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -241,6 +285,7 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
 
             if (!widget.esOrganizador && evento.estado == 'ABIERTO') ...[
               const SizedBox(height: 12),
+
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -262,7 +307,9 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
                   ),
                 ),
               ),
+
               const SizedBox(height: 8),
+
               TextButton.icon(
                 onPressed: () {
                   Navigator.push(
@@ -290,6 +337,7 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
           widget.esOrganizador ? 'Mis eventos' : 'Eventos disponibles',
         ),
       ),
+
       floatingActionButton: widget.esOrganizador
           ? FloatingActionButton(
               tooltip: 'Crear evento',
@@ -302,6 +350,7 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
               child: const Icon(Icons.add),
             )
           : null,
+
       body: StreamBuilder<List<Evento>>(
         stream: eventosStream,
         builder: (context, snapshot) {
@@ -334,7 +383,9 @@ class _ListaEventosScreenState extends State<ListaEventosScreen> {
           return ListView.builder(
             padding: const EdgeInsets.all(12),
             itemCount: eventos.length,
-            itemBuilder: (context, index) => tarjetaEvento(eventos[index]),
+            itemBuilder: (context, index) {
+              return tarjetaEvento(eventos[index]);
+            },
           );
         },
       ),

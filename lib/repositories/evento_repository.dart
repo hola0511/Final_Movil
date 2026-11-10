@@ -116,6 +116,82 @@ class EventoRepository {
     });
   }
 
+  Future<void> editarEvento({
+    required String eventoId,
+    required String nombre,
+    required int capacidad,
+    required DateTime inicio,
+    required DateTime fin,
+  }) async {
+    final uid = _uid;
+    final referencia = _eventos.doc(eventoId);
+
+    await _db.runTransaction((tx) async {
+      final snapshot = await tx.get(referencia);
+
+      if (!snapshot.exists) {
+        throw StateError('El evento no existe');
+      }
+
+      final actual = Evento.desdeFirestore(snapshot);
+
+      if (actual.organizadorUid != uid) {
+        throw StateError('Solo el organizador propietario puede editar');
+      }
+
+      if (actual.estado != 'BORRADOR' && actual.estado != 'ABIERTO') {
+        throw StateError(
+          'No se puede editar un evento cerrado '
+          'o finalizado',
+        );
+      }
+
+      final ahora = DateTime.now();
+
+      if (!actual.inicio.isAfter(ahora)) {
+        throw StateError('No se pueden editar eventos iniciados');
+      }
+
+      if (capacidad < actual.confirmados) {
+        throw StateError(
+          'La capacidad no puede ser inferior a '
+          'los ${actual.confirmados} participantes '
+          'confirmados',
+        );
+      }
+
+      final actualizado = Evento(
+        id: actual.id,
+        nombre: nombre.trim(),
+        capacidad: capacidad,
+        inicio: inicio,
+        fin: fin,
+        organizadorUid: actual.organizadorUid,
+        estado: actual.estado,
+        confirmados: actual.confirmados,
+        categoriaId: actual.categoriaId,
+        recintoId: actual.recintoId,
+      );
+
+      final error = EventoValidator.validar(actualizado);
+
+      if (error != null) {
+        throw StateError(error);
+      }
+
+      // La transacción trabaja con el contador
+      // más reciente de Firestore.
+      // No se cambia confirmados ni el estado.
+      tx.update(referencia, {
+        'nombre': actualizado.nombre,
+        'capacidad': actualizado.capacidad,
+        'inicio': Timestamp.fromDate(actualizado.inicio),
+        'fin': Timestamp.fromDate(actualizado.fin),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
   Future<void> cerrarInscripciones(String eventoId) async {
     final referencia = _eventos.doc(eventoId);
     final uid = _uid;
